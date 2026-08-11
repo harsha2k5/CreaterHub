@@ -101,7 +101,7 @@ router.put('/:id/status', authenticateToken, (req, res) => {
                     db.prepare(`
                         INSERT INTO messages (id, conversation_id, sender_id, text, read_status)
                         VALUES (?, ?, ?, ?, 0)
-                    `).run('msg_' + Date.now(), convId, brandUser.user_id, `Congratulations! Your application for "${app.campaign_title}" has been accepted. Let us coordinate content creation!`, 0);
+                    `).run('msg_' + Date.now(), convId, brandUser.user_id, `Congratulations! Your application for "${app.campaign_title}" has been accepted. Let us coordinate content creation!`);
                 }
             }
 
