@@ -5,6 +5,7 @@ const getBaseUrl = () => {
 };
 
 const API_BASE_URL = getBaseUrl();
+console.log(`[API Config] Base API URL: "${API_BASE_URL}" | VITE_API_URL: "${import.meta.env.VITE_API_URL || 'NOT_SET'}"`);
 
 function getAuthHeaders() {
   const token = localStorage.getItem('token');
@@ -33,22 +34,27 @@ async function request(endpoint: string, options: RequestInit = {}) {
       try {
         data = JSON.parse(text);
       } catch (jsonErr) {
-        throw new Error(`Server returned non-JSON response (${response.status}). If deployed on Netlify, set VITE_API_URL in Netlify settings to your backend URL.`);
+        const isNotSet = !import.meta.env.VITE_API_URL;
+        const snippet = text.slice(0, 150).replace(/\s+/g, ' ');
+        if (isNotSet) {
+          throw new Error(`API Config Error: VITE_API_URL is NOT set on Netlify! Request went to "${url}" and received HTML (Status ${response.status}). Set VITE_API_URL in Netlify Site Settings and Trigger a New Deploy.`);
+        }
+        throw new Error(`Backend Error (${response.status}): Fetching "${url}" returned non-JSON content: "${snippet}...". Verify backend URL and status.`);
       }
     } else {
       if (!response.ok) {
-        throw new Error(`Server returned empty response (${response.status}). Ensure backend API is running.`);
+        throw new Error(`Server returned empty response (${response.status}) from "${url}". Ensure backend API is running.`);
       }
     }
 
     if (!response.ok || (data && data.success === false)) {
-      throw new Error(data?.error || `API request failed with status ${response.status}`);
+      throw new Error(data?.error || `API request to "${url}" failed with status ${response.status}`);
     }
 
     return data;
   } catch (err: any) {
     if (err.name === 'TypeError' && (err.message === 'Failed to fetch' || err.message.includes('fetch'))) {
-      throw new Error('Backend server is offline or unreachable. Please verify VITE_API_URL or ensure backend server is running.');
+      throw new Error(`Network Error: Unreachable backend at "${url}". Verify VITE_API_URL or check if backend service is running.`);
     }
     throw err;
   }
