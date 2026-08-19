@@ -54,8 +54,8 @@ async function startServer() {
         }
     }
 
-    app.listen(PORT, () => {
-        console.log(`🚀 Brand x Creator API Server running on http://localhost:${PORT}`);
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🚀 Brand x Creator API Server running on port ${PORT}`);
     });
 }
 
