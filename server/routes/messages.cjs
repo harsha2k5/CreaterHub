@@ -1,42 +1,81 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db/database.cjs');
+const { Conversation, Message, Brand, Creator, Collaboration, Campaign } = require('../models/index.cjs');
 const { authenticateToken } = require('../middleware/auth.cjs');
 
 // GET /api/messages/conversations
-router.get('/conversations', authenticateToken, (req, res) => {
+router.get('/conversations', authenticateToken, async (req, res) => {
     try {
         let conversations = [];
 
         if (req.user.role === 'brand') {
-            const brand = db.prepare('SELECT id FROM brands WHERE user_id = ?').get(req.user.id);
+            const brand = await Brand.findOne({ user_id: req.user.id }).lean();
             if (!brand) return res.json({ success: true, conversations: [] });
 
-            conversations = db.prepare(`
-                SELECT conv.*, cr.full_name AS other_party_name, cr.avatar_url AS other_party_avatar, cr.username AS other_party_handle,
-                       c.title AS campaign_title
-                FROM conversations conv
-                JOIN creators cr ON conv.creator_id = cr.id
-                LEFT JOIN collaborations col ON conv.collaboration_id = col.id
-                LEFT JOIN campaigns c ON col.campaign_id = c.id
-                WHERE conv.brand_id = ?
-                ORDER BY conv.updated_at DESC
-            `).all(brand.id);
+            const rawConvs = await Conversation.find({ brand_id: brand.id }).sort({ updated_at: -1 }).lean();
+
+            const creatorIds = [...new Set(rawConvs.map(c => c.creator_id))];
+            const collabIds = rawConvs.map(c => c.collaboration_id).filter(Boolean);
+
+            const [creators, collabs] = await Promise.all([
+                Creator.find({ id: { $in: creatorIds } }).lean(),
+                Collaboration.find({ id: { $in: collabIds } }).lean()
+            ]);
+
+            const campaignIds = [...new Set(collabs.map(c => c.campaign_id))];
+            const campaigns = await Campaign.find({ id: { $in: campaignIds } }).lean();
+
+            const creatorMap = {}; creators.forEach(cr => creatorMap[cr.id] = cr);
+            const collabMap = {}; collabs.forEach(col => collabMap[col.id] = col);
+            const campaignMap = {}; campaigns.forEach(camp => campaignMap[camp.id] = camp);
+
+            conversations = rawConvs.map(conv => {
+                const cr = creatorMap[conv.creator_id] || {};
+                const col = collabMap[conv.collaboration_id] || {};
+                const camp = campaignMap[col.campaign_id] || {};
+
+                return {
+                    ...conv,
+                    other_party_name: cr.full_name || 'Creator',
+                    other_party_avatar: cr.avatar_url || '',
+                    other_party_handle: cr.username || '',
+                    campaign_title: camp.title || ''
+                };
+            });
 
         } else if (req.user.role === 'creator') {
-            const creator = db.prepare('SELECT id FROM creators WHERE user_id = ?').get(req.user.id);
+            const creator = await Creator.findOne({ user_id: req.user.id }).lean();
             if (!creator) return res.json({ success: true, conversations: [] });
 
-            conversations = db.prepare(`
-                SELECT conv.*, b.company_name AS other_party_name, b.logo_url AS other_party_avatar,
-                       c.title AS campaign_title
-                FROM conversations conv
-                JOIN brands b ON conv.brand_id = b.id
-                LEFT JOIN collaborations col ON conv.collaboration_id = col.id
-                LEFT JOIN campaigns c ON col.campaign_id = c.id
-                WHERE conv.creator_id = ?
-                ORDER BY conv.updated_at DESC
-            `).all(creator.id);
+            const rawConvs = await Conversation.find({ creator_id: creator.id }).sort({ updated_at: -1 }).lean();
+
+            const brandIds = [...new Set(rawConvs.map(c => c.brand_id))];
+            const collabIds = rawConvs.map(c => c.collaboration_id).filter(Boolean);
+
+            const [brands, collabs] = await Promise.all([
+                Brand.find({ id: { $in: brandIds } }).lean(),
+                Collaboration.find({ id: { $in: collabIds } }).lean()
+            ]);
+
+            const campaignIds = [...new Set(collabs.map(c => c.campaign_id))];
+            const campaigns = await Campaign.find({ id: { $in: campaignIds } }).lean();
+
+            const brandMap = {}; brands.forEach(b => brandMap[b.id] = b);
+            const collabMap = {}; collabs.forEach(col => collabMap[col.id] = col);
+            const campaignMap = {}; campaigns.forEach(camp => campaignMap[camp.id] = camp);
+
+            conversations = rawConvs.map(conv => {
+                const b = brandMap[conv.brand_id] || {};
+                const col = collabMap[conv.collaboration_id] || {};
+                const camp = campaignMap[col.campaign_id] || {};
+
+                return {
+                    ...conv,
+                    other_party_name: b.company_name || 'Brand',
+                    other_party_avatar: b.logo_url || '',
+                    campaign_title: camp.title || ''
+                };
+            });
         }
 
         return res.json({ success: true, count: conversations.length, conversations });
@@ -47,17 +86,16 @@ router.get('/conversations', authenticateToken, (req, res) => {
 });
 
 // GET /api/messages/:conversationId
-router.get('/:conversationId', authenticateToken, (req, res) => {
+router.get('/:conversationId', authenticateToken, async (req, res) => {
     try {
         const conversationId = req.params.conversationId;
-        const messages = db.prepare(`
-            SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC
-        `).all(conversationId);
+        const messages = await Message.find({ conversation_id: conversationId }).sort({ created_at: 1 }).lean();
 
         // Mark unread messages as read
-        db.prepare(`
-            UPDATE messages SET read_status = 1 WHERE conversation_id = ? AND sender_id != ?
-        `).run(conversationId, req.user.id);
+        await Message.updateMany(
+            { conversation_id: conversationId, sender_id: { $ne: req.user.id } },
+            { read_status: 1 }
+        );
 
         return res.json({ success: true, count: messages.length, messages });
     } catch (err) {
@@ -66,7 +104,7 @@ router.get('/:conversationId', authenticateToken, (req, res) => {
 });
 
 // POST /api/messages/:conversationId
-router.post('/:conversationId', authenticateToken, (req, res) => {
+router.post('/:conversationId', authenticateToken, async (req, res) => {
     try {
         const conversationId = req.params.conversationId;
         const { text, attachment_url } = req.body;
@@ -76,15 +114,20 @@ router.post('/:conversationId', authenticateToken, (req, res) => {
         }
 
         const msgId = 'msg_' + Date.now();
-        db.prepare(`
-            INSERT INTO messages (id, conversation_id, sender_id, text, attachment_url, read_status)
-            VALUES (?, ?, ?, ?, ?, 0)
-        `).run(msgId, conversationId, req.user.id, text || '', attachment_url || '');
+        await Message.create({
+            id: msgId,
+            conversation_id: conversationId,
+            sender_id: req.user.id,
+            text: text || '',
+            attachment_url: attachment_url || '',
+            read_status: 0
+        });
 
         // Update last message in conversation
-        db.prepare(`
-            UPDATE conversations SET last_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
-        `).run(text || 'Attachment sent', conversationId);
+        await Conversation.updateOne(
+            { id: conversationId },
+            { last_message: text || 'Attachment sent', updated_at: new Date() }
+        );
 
         return res.status(201).json({ success: true, messageId: msgId, text, created_at: new Date().toISOString() });
     } catch (err) {

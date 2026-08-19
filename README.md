@@ -31,13 +31,10 @@ npx vite --port 5173
 
 ---
 
-## 🔑 Demo Account Credentials
+## 🔑 Account Credentials
 
 | Persona | Email | Password | Role |
 | :--- | :--- | :--- | :--- |
-| **CCD Indiranagar (Brand)** | `marketing@ccd.com` | `Password123!` | Brand |
-| **Nescafé Coffee (Brand)** | `campaigns@nescafe.com` | `Password123!` | Brand |
-| **Alex Rivera (Creator)** | `alex@creatorhub.io` | `Password123!` | Creator |
 | **Admin Portal** | `admin@creatorhub.io` | `admin123` | Admin |
 
 ---

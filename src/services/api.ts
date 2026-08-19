@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 function getAuthHeaders() {
   const token = localStorage.getItem('token');
@@ -18,15 +18,23 @@ async function request(endpoint: string, options: RequestInit = {}) {
     }
   };
 
-  const response = await fetch(url, config);
-  const data = await response.json();
+  try {
+    const response = await fetch(url, config);
+    const data = await response.json();
 
-  if (!response.ok || !data.success) {
-    throw new Error(data.error || 'API Request failed');
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'API Request failed');
+    }
+
+    return data;
+  } catch (err: any) {
+    if (err.name === 'TypeError' && (err.message === 'Failed to fetch' || err.message.includes('fetch'))) {
+      throw new Error('Backend server is offline or unreachable. Please ensure the server (npm run server) is running on port 5000.');
+    }
+    throw err;
   }
-
-  return data;
 }
+
 
 export const api = {
   // Auth
@@ -80,6 +88,7 @@ export const api = {
   // Admin
   getAdminStats: () => request('/admin/stats'),
   getAdminUsers: () => request('/admin/users'),
+  getAdminCollaborations: () => request('/admin/collaborations'),
   verifyUser: (userId: string) => request(`/admin/verify-user/${userId}`, { method: 'PUT' }),
   getAdminReports: () => request('/admin/reports')
 };

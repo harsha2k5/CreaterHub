@@ -79,6 +79,7 @@ export const BrandDashboard: React.FC = () => {
         category,
         location_name: locationName,
         outlet_name: outletName,
+        address: locationName || outletName || 'Bengaluru, India',
         radius_km: Number(radiusKm),
         reward_per_creator: Number(reward),
         creators_required: Number(creatorsCount),

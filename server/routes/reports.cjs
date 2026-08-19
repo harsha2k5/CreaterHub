@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db/database.cjs');
+const { Report } = require('../models/index.cjs');
 const { authenticateToken } = require('../middleware/auth.cjs');
 
 // POST /api/reports
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
     try {
         const { reported_id, target_type, reason, description } = req.body;
 
@@ -13,17 +13,15 @@ router.post('/', authenticateToken, (req, res) => {
         }
 
         const reportId = 'rep_' + Date.now();
-        db.prepare(`
-            INSERT INTO reports (id, reporter_id, reported_id, target_type, reason, description, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending')
-        `).run(
-            reportId,
-            req.user.id,
+        await Report.create({
+            id: reportId,
+            reporter_id: req.user.id,
             reported_id,
             target_type,
             reason,
-            description || ''
-        );
+            description: description || '',
+            status: 'pending'
+        });
 
         return res.status(201).json({ success: true, message: 'Report submitted for admin review.', reportId });
     } catch (err) {

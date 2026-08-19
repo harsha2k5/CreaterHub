@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Users, Mail, Lock, User, AtSign, MapPin, ArrowRight, Zap } from 'lucide-react';
+import { Users, Mail, Lock, User, AtSign, MapPin, ArrowRight } from 'lucide-react';
 
 export const CreatorAuthPage: React.FC = () => {
   const [isRegister, setIsRegister] = useState(false);
-  const [email, setEmail] = useState('alex@creatorhub.io');
-  const [password, setPassword] = useState('Password123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
   const [city, setCity] = useState('Bengaluru');
@@ -37,11 +37,6 @@ export const CreatorAuthPage: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
     }
-  };
-
-  const fillDemo = () => {
-    setEmail('alex@creatorhub.io');
-    setPassword('Password123!');
   };
 
   return (
@@ -148,14 +143,6 @@ export const CreatorAuthPage: React.FC = () => {
         </form>
 
         <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2">
-          <button
-            onClick={fillDemo}
-            type="button"
-            className="w-full py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
-          >
-            <Zap className="w-3.5 h-3.5 text-purple-500" /> One-Click Demo Login as Alex Rivera (128K)
-          </button>
-
           <button
             onClick={() => setIsRegister(!isRegister)}
             className="text-xs text-purple-600 dark:text-purple-400 font-bold text-center hover:underline"

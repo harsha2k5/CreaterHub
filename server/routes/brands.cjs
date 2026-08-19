@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db/database.cjs');
+const { Brand, Campaign, Review, Creator, User } = require('../models/index.cjs');
 
 // GET /api/brands
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
     try {
-        const brands = db.prepare('SELECT * FROM brands ORDER BY rating DESC').all();
+        const brands = await Brand.find({}).sort({ rating: -1 }).lean();
         return res.json({ success: true, count: brands.length, brands });
     } catch (err) {
         return res.status(500).json({ success: false, error: 'Error fetching brands.' });
@@ -13,22 +13,30 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/brands/:id
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
     try {
-        const brand = db.prepare('SELECT * FROM brands WHERE id = ?').get(req.params.id);
+        const brand = await Brand.findOne({ id: req.params.id }).lean();
         if (!brand) {
             return res.status(404).json({ success: false, error: 'Brand not found.' });
         }
 
-        const activeCampaigns = db.prepare('SELECT * FROM campaigns WHERE brand_id = ? AND status = "published"').all(brand.id);
-        const reviews = db.prepare(`
-            SELECT r.*, cr.full_name AS reviewer_name, cr.avatar_url AS reviewer_avatar
-            FROM reviews r
-            JOIN users u ON r.reviewer_id = u.id
-            LEFT JOIN creators cr ON cr.user_id = u.id
-            WHERE r.reviewee_id = ?
-            ORDER BY r.created_at DESC
-        `).all(brand.user_id);
+        const activeCampaigns = await Campaign.find({ brand_id: brand.id, status: 'published' }).lean();
+
+        const rawReviews = await Review.find({ reviewee_id: brand.user_id }).sort({ created_at: -1 }).lean();
+
+        const reviewerUserIds = [...new Set(rawReviews.map(r => r.reviewer_id))];
+        const creators = await Creator.find({ user_id: { $in: reviewerUserIds } }).lean();
+
+        const creatorMap = {}; creators.forEach(cr => creatorMap[cr.user_id] = cr);
+
+        const reviews = rawReviews.map(r => {
+            const cr = creatorMap[r.reviewer_id] || {};
+            return {
+                ...r,
+                reviewer_name: cr.full_name || 'Creator Reviewer',
+                reviewer_avatar: cr.avatar_url || ''
+            };
+        });
 
         return res.json({ success: true, brand, activeCampaigns, reviews });
     } catch (err) {

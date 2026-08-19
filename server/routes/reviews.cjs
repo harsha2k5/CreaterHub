@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db/database.cjs');
+const { Review, User, Creator, Brand } = require('../models/index.cjs');
 const { authenticateToken } = require('../middleware/auth.cjs');
 
 // POST /api/reviews
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
     try {
         const { collaboration_id, reviewee_id, rating, review_text } = req.body;
 
@@ -13,30 +13,28 @@ router.post('/', authenticateToken, (req, res) => {
         }
 
         const reviewId = 'rev_' + Date.now();
-        db.prepare(`
-            INSERT INTO reviews (id, collaboration_id, reviewer_id, reviewee_id, reviewer_role, rating, review_text)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(
-            reviewId,
+        await Review.create({
+            id: reviewId,
             collaboration_id,
-            req.user.id,
+            reviewer_id: req.user.id,
             reviewee_id,
-            req.user.role,
-            Number(rating),
-            review_text || ''
-        );
+            reviewer_role: req.user.role,
+            rating: Number(rating),
+            review_text: review_text || ''
+        });
 
         // Recalculate average rating for reviewee profile
-        const reviewee = db.prepare('SELECT role FROM users WHERE id = ?').get(reviewee_id);
+        const reviewee = await User.findOne({ id: reviewee_id }).lean();
         if (reviewee) {
-            const avgData = db.prepare('SELECT AVG(rating) AS avg_rating, COUNT(*) AS count FROM reviews WHERE reviewee_id = ?').get(reviewee_id);
-            const newRating = parseFloat((avgData.avg_rating || 5.0).toFixed(1));
-            const count = avgData.count;
+            const allReviews = await Review.find({ reviewee_id }).lean();
+            const count = allReviews.length;
+            const sum = allReviews.reduce((acc, r) => acc + r.rating, 0);
+            const newRating = count > 0 ? parseFloat((sum / count).toFixed(1)) : 5.0;
 
             if (reviewee.role === 'creator') {
-                db.prepare('UPDATE creators SET rating = ?, review_count = ? WHERE user_id = ?').run(newRating, count, reviewee_id);
+                await Creator.updateOne({ user_id: reviewee_id }, { rating: newRating, review_count: count });
             } else if (reviewee.role === 'brand') {
-                db.prepare('UPDATE brands SET rating = ?, review_count = ? WHERE user_id = ?').run(newRating, count, reviewee_id);
+                await Brand.updateOne({ user_id: reviewee_id }, { rating: newRating, review_count: count });
             }
         }
 

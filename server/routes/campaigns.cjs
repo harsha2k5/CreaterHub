@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db/database.cjs');
+const { Campaign, Brand, Creator, Application, User, Notification } = require('../models/index.cjs');
 const { authenticateToken, requireBrand, requireCreator } = require('../middleware/auth.cjs');
 
 // Haversine spatial distance calculation in kilometers
@@ -17,44 +17,44 @@ function getHaversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 // GET /api/campaigns (Discovery & Location Filtering)
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
     try {
-        const { lat, lng, radius, category, platform, min_reward, search, sort } = req.query;
+        const { lat, lng, radius, category, platform, min_reward, search } = req.query;
 
-        let query = `
-            SELECT c.*, b.company_name AS brand_name, b.logo_url AS brand_logo, b.verified AS brand_verified
-            FROM campaigns c
-            JOIN brands b ON c.brand_id = b.id
-            WHERE c.status = 'published'
-        `;
-        const params = [];
+        const filter = { status: 'published' };
 
         if (category && category !== 'All') {
-            query += ` AND c.category LIKE ?`;
-            params.push(`%${category}%`);
+            filter.category = new RegExp(category, 'i');
         }
 
         if (platform && platform !== 'All') {
-            query += ` AND c.platform LIKE ?`;
-            params.push(`%${platform}%`);
+            filter.platform = new RegExp(platform, 'i');
         }
 
         if (min_reward) {
-            query += ` AND c.reward_per_creator >= ?`;
-            params.push(Number(min_reward));
+            filter.reward_per_creator = { $gte: Number(min_reward) };
         }
 
         if (search) {
-            query += ` AND (c.title LIKE ? OR c.description LIKE ? OR c.location_name LIKE ? OR b.company_name LIKE ?)`;
-            params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+            const searchRegex = new RegExp(search, 'i');
+            filter.$or = [
+                { title: searchRegex },
+                { description: searchRegex },
+                { location_name: searchRegex }
+            ];
         }
 
-        query += ` ORDER BY c.start_date DESC`;
+        const rawCampaigns = await Campaign.find(filter).sort({ _id: -1 }).lean();
 
-        const campaigns = db.prepare(query).all(...params);
+        // Fetch brands to populate brand metadata
+        const brandIds = [...new Set(rawCampaigns.map(c => c.brand_id))];
+        const brands = await Brand.find({ id: { $in: brandIds } }).lean();
+        const brandMap = {};
+        brands.forEach(b => { brandMap[b.id] = b; });
 
-        // Process distance and Parse JSON fields
-        const processed = campaigns.map(c => {
+        // Process distance and Parse JSON/array fields safely
+        const processed = rawCampaigns.map(c => {
+            const brand = brandMap[c.brand_id] || {};
             let distanceKm = null;
             if (lat && lng) {
                 distanceKm = parseFloat(getHaversineDistance(parseFloat(lat), parseFloat(lng), c.lat, c.lng).toFixed(1));
@@ -62,10 +62,26 @@ router.get('/', (req, res) => {
                 distanceKm = 2.4; // Default demo distance
             }
 
+            let deliverables = [];
+            let req_categories = [];
+            try {
+                deliverables = Array.isArray(c.deliverables) ? c.deliverables : (typeof c.deliverables === 'string' ? JSON.parse(c.deliverables) : (c.deliverables || []));
+            } catch (e) {
+                deliverables = [c.deliverables || '1 Reel'];
+            }
+            try {
+                req_categories = Array.isArray(c.req_categories) ? c.req_categories : (typeof c.req_categories === 'string' ? JSON.parse(c.req_categories) : (c.req_categories || []));
+            } catch (e) {
+                req_categories = [c.category || 'General'];
+            }
+
             return {
                 ...c,
-                deliverables: JSON.parse(c.deliverables || '[]'),
-                req_categories: JSON.parse(c.req_categories || '[]'),
+                brand_name: brand.company_name || 'Brand',
+                brand_logo: brand.logo_url || '',
+                brand_verified: brand.verified || 1,
+                deliverables,
+                req_categories,
                 distanceKm,
                 is_within_radius: radius ? distanceKm <= parseFloat(radius) : true
             };
@@ -84,21 +100,33 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/campaigns/:id
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
     try {
-        const campaign = db.prepare(`
-            SELECT c.*, b.company_name AS brand_name, b.logo_url AS brand_logo, b.description AS brand_description, b.verified AS brand_verified, b.rating AS brand_rating
-            FROM campaigns c
-            JOIN brands b ON c.brand_id = b.id
-            WHERE c.id = ?
-        `).get(req.params.id);
+        const campaign = await Campaign.findOne({ id: req.params.id }).lean();
 
         if (!campaign) {
             return res.status(404).json({ success: false, error: 'Campaign not found.' });
         }
 
-        campaign.deliverables = JSON.parse(campaign.deliverables || '[]');
-        campaign.req_categories = JSON.parse(campaign.req_categories || '[]');
+        const brand = await Brand.findOne({ id: campaign.brand_id }).lean();
+        if (brand) {
+            campaign.brand_name = brand.company_name;
+            campaign.brand_logo = brand.logo_url;
+            campaign.brand_description = brand.description;
+            campaign.brand_verified = brand.verified;
+            campaign.brand_rating = brand.rating;
+        }
+
+        try {
+            campaign.deliverables = Array.isArray(campaign.deliverables) ? campaign.deliverables : (typeof campaign.deliverables === 'string' ? JSON.parse(campaign.deliverables) : (campaign.deliverables || []));
+        } catch (e) {
+            campaign.deliverables = [campaign.deliverables || '1 Reel'];
+        }
+        try {
+            campaign.req_categories = Array.isArray(campaign.req_categories) ? campaign.req_categories : (typeof campaign.req_categories === 'string' ? JSON.parse(campaign.req_categories) : (campaign.req_categories || []));
+        } catch (e) {
+            campaign.req_categories = [campaign.category || 'General'];
+        }
 
         return res.json({ success: true, campaign });
     } catch (err) {
@@ -107,9 +135,9 @@ router.get('/:id', (req, res) => {
 });
 
 // POST /api/campaigns (Brand Creates Campaign)
-router.post('/', authenticateToken, requireBrand, (req, res) => {
+router.post('/', authenticateToken, requireBrand, async (req, res) => {
     try {
-        const brand = db.prepare('SELECT id FROM brands WHERE user_id = ?').get(req.user.id);
+        const brand = await Brand.findOne({ user_id: req.user.id }).lean();
         if (!brand) {
             return res.status(400).json({ success: false, error: 'Brand profile required to create campaigns.' });
         }
@@ -129,53 +157,46 @@ router.post('/', authenticateToken, requireBrand, (req, res) => {
 
         const campaignId = 'camp_' + Date.now();
 
-        db.prepare(`
-            INSERT INTO campaigns (
-                id, brand_id, title, description, objective, category, location_name, outlet_name,
-                address, city, state, pin_code, lat, lng, radius_km, min_followers, max_followers,
-                req_categories, req_gender, req_language, req_engagement, platform, deliverables,
-                budget_total, reward_per_creator, creators_required, creators_hired, payment_type,
-                start_date, end_date, app_deadline, content_deadline, hashtags, mentions, guidelines,
-                dos, donts, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published')
-        `).run(
-            campaignId,
-            brand.id,
+        await Campaign.create({
+            id: campaignId,
+            brand_id: brand.id,
             title,
             description,
-            objective || '',
+            objective: objective || '',
             category,
             location_name,
-            outlet_name || location_name,
-            address || '',
-            city || 'Bengaluru',
-            state || 'Karnataka',
-            pin_code || '',
-            lat || 12.9716,
-            lng || 77.5946,
-            radius_km || 10.0,
-            min_followers || 1000,
-            max_followers || 500000,
-            JSON.stringify(req_categories || [category]),
-            req_gender || 'Any',
-            req_language || 'English',
-            req_engagement || 2.0,
-            platform || 'Instagram',
-            JSON.stringify(deliverables || ['1 Reel']),
-            budget_total || (reward_per_creator * creators_required),
+            outlet_name: outlet_name || location_name || brand.company_name || 'Main Outlet',
+            address: address || location_name || brand.address || brand.city || 'Bengaluru',
+            city: city || brand.city || 'Bengaluru',
+            state: state || brand.state || 'Karnataka',
+            pin_code: pin_code || brand.pin_code || '',
+            lat: lat || brand.lat || 12.9716,
+            lng: lng || brand.lng || 77.5946,
+            radius_km: radius_km || 10.0,
+            min_followers: min_followers || 1000,
+            max_followers: max_followers || 500000,
+            req_categories: req_categories || [category],
+            req_gender: req_gender || 'Any',
+            req_language: req_language || 'English',
+            req_engagement: req_engagement || 2.0,
+            platform: platform || 'Instagram',
+            deliverables: deliverables || ['1 Reel'],
+            budget_total: budget_total || (reward_per_creator * creators_required),
             reward_per_creator,
             creators_required,
-            payment_type || 'Fixed Payment',
-            start_date || '2026-08-15',
-            end_date || '2026-09-15',
-            app_deadline || '2026-08-25',
-            content_deadline || '2026-09-05',
-            hashtags || '',
-            mentions || '',
-            guidelines || '',
-            dos || '',
-            donts || ''
-        );
+            creators_hired: 0,
+            payment_type: payment_type || 'Fixed Payment',
+            start_date: start_date || '2026-08-15',
+            end_date: end_date || '2026-09-15',
+            app_deadline: app_deadline || '2026-08-25',
+            content_deadline: content_deadline || '2026-09-05',
+            hashtags: hashtags || '',
+            mentions: mentions || '',
+            guidelines: guidelines || '',
+            dos: dos || '',
+            donts: donts || '',
+            status: 'published'
+        });
 
         return res.status(201).json({ success: true, message: 'Campaign created successfully!', campaignId });
     } catch (err) {
@@ -185,21 +206,38 @@ router.post('/', authenticateToken, requireBrand, (req, res) => {
 });
 
 // POST /api/campaigns/:id/apply (Creator Submits Application)
-router.post('/:id/apply', authenticateToken, requireCreator, (req, res) => {
+router.post('/:id/apply', authenticateToken, requireCreator, async (req, res) => {
     try {
-        const creator = db.prepare('SELECT id, full_name FROM creators WHERE user_id = ?').get(req.user.id);
+        let creator = await Creator.findOne({ user_id: req.user.id }).lean();
         if (!creator) {
-            return res.status(400).json({ success: false, error: 'Creator profile required.' });
+            // Auto-create creator profile fallback
+            const creatorId = 'creator_' + Date.now();
+            const u = await User.findOne({ id: req.user.id }).lean();
+            const uname = 'user_' + Math.floor(Math.random() * 10000);
+            creator = await Creator.create({
+                id: creatorId,
+                user_id: req.user.id,
+                full_name: u ? u.email.split('@')[0] : 'Creator Profile',
+                username: uname,
+                phone: '',
+                location_name: 'Bengaluru',
+                city: 'Bengaluru',
+                state: 'Karnataka',
+                bio: '',
+                categories: ['Lifestyle'],
+                languages: ['English'],
+                verified: 1
+            });
         }
 
         const campaignId = req.params.id;
-        const campaign = db.prepare('SELECT id, brand_id, title FROM campaigns WHERE id = ?').get(campaignId);
+        const campaign = await Campaign.findOne({ id: campaignId }).lean();
 
         if (!campaign) {
             return res.status(404).json({ success: false, error: 'Campaign not found.' });
         }
 
-        const existingApp = db.prepare('SELECT id FROM applications WHERE campaign_id = ? AND creator_id = ?').get(campaignId, creator.id);
+        const existingApp = await Application.findOne({ campaign_id: campaignId, creator_id: creator.id });
         if (existingApp) {
             return res.status(400).json({ success: false, error: 'You have already applied to this campaign.' });
         }
@@ -212,33 +250,28 @@ router.post('/:id/apply', authenticateToken, requireCreator, (req, res) => {
 
         const appId = 'app_' + Date.now();
 
-        db.prepare(`
-            INSERT INTO applications (id, campaign_id, creator_id, pitch, relevant_experience, content_idea, sample_links, expected_date, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'submitted')
-        `).run(
-            appId,
-            campaignId,
-            creator.id,
+        await Application.create({
+            id: appId,
+            campaign_id: campaignId,
+            creator_id: creator.id,
             pitch,
-            relevant_experience || '',
+            relevant_experience: relevant_experience || '',
             content_idea,
-            sample_links || '',
-            expected_date || 'In 7 Days'
-        );
+            sample_links: sample_links || '',
+            expected_date: expected_date || 'In 7 Days',
+            status: 'submitted'
+        });
 
         // Notify Brand user
-        const brandUser = db.prepare('SELECT user_id FROM brands WHERE id = ?').get(campaign.brand_id);
-        if (brandUser) {
-            db.prepare(`
-                INSERT INTO notifications (id, user_id, title, message, link)
-                VALUES (?, ?, ?, ?, ?)
-            `).run(
-                'notif_' + Date.now(),
-                brandUser.user_id,
-                '📥 New Creator Application',
-                `${creator.full_name} applied for "${campaign.title}"`,
-                '/applications'
-            );
+        const brand = await Brand.findOne({ id: campaign.brand_id }).lean();
+        if (brand) {
+            await Notification.create({
+                id: 'notif_' + Date.now(),
+                user_id: brand.user_id,
+                title: '📥 New Creator Application',
+                message: `${creator.full_name} applied for "${campaign.title}"`,
+                link: '/applications'
+            });
         }
 
         return res.status(201).json({ success: true, message: 'Application submitted successfully!', applicationId: appId });

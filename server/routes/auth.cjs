@@ -2,11 +2,11 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const db = require('../db/database.cjs');
+const { User, Brand, Creator } = require('../models/index.cjs');
 const { JWT_SECRET, authenticateToken } = require('../middleware/auth.cjs');
 
 // POST /api/auth/register
-router.post('/register', (eReq, res) => {
+router.post('/register', async (eReq, res) => {
     try {
         const { role, email, password, company_name, full_name, username, phone, category, city, state, location_name, address, pin_code, description, bio } = eReq.body;
 
@@ -14,65 +14,79 @@ router.post('/register', (eReq, res) => {
             return res.status(400).json({ success: false, error: 'Email, password, and role are required.' });
         }
 
-        const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+        const existingUser = await User.findOne({ email });
         if (existingUser) {
-            return res.status(400).json({ success: false, error: 'User with this email already exists.' });
+            return res.status(400).json({ success: false, error: 'User with this email address already exists. Please log in.' });
+        }
+
+        if (role === 'creator') {
+            const requestedUsername = (username || '').trim();
+            if (requestedUsername) {
+                const existingCreator = await Creator.findOne({ username: requestedUsername });
+                if (existingCreator) {
+                    return res.status(400).json({ success: false, error: `Username "${requestedUsername}" is already taken. Please choose a different username.` });
+                }
+            }
         }
 
         const userId = 'user_' + Date.now();
         const passwordHash = bcrypt.hashSync(password, 10);
 
-        // Transaction to insert User + Profile
-        const registerTransaction = db.transaction(() => {
-            db.prepare(`
-                INSERT INTO users (id, email, password_hash, role, is_verified)
-                VALUES (?, ?, ?, ?, 1)
-            `).run(userId, email, passwordHash, role);
-
-            let profileId = '';
-            if (role === 'brand') {
-                profileId = 'brand_' + Date.now();
-                db.prepare(`
-                    INSERT INTO brands (id, user_id, company_name, business_email, phone, category, location_name, address, city, state, pin_code, description, verified)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                `).run(
-                    profileId,
-                    userId,
-                    company_name || 'My Brand',
-                    email,
-                    phone || '',
-                    category || 'General',
-                    location_name || city || 'Bengaluru',
-                    address || '',
-                    city || 'Bengaluru',
-                    state || 'Karnataka',
-                    pin_code || '',
-                    description || ''
-                );
-            } else if (role === 'creator') {
-                profileId = 'creator_' + Date.now();
-                const uname = username || 'user_' + Math.floor(Math.random() * 10000);
-                db.prepare(`
-                    INSERT INTO creators (id, user_id, full_name, username, phone, location_name, city, state, bio, categories, languages, verified)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                `).run(
-                    profileId,
-                    userId,
-                    full_name || 'New Creator',
-                    uname,
-                    phone || '',
-                    location_name || city || 'Bengaluru',
-                    city || 'Bengaluru',
-                    state || 'Karnataka',
-                    bio || '',
-                    JSON.stringify(['Lifestyle']),
-                    JSON.stringify(['English'])
-                );
-            }
-            return profileId;
+        const newUser = await User.create({
+            id: userId,
+            email,
+            password_hash: passwordHash,
+            role,
+            is_verified: 1
         });
 
-        const profileId = registerTransaction();
+        let profileId = '';
+        let profile = null;
+
+        try {
+            if (role === 'brand') {
+                profileId = 'brand_' + Date.now();
+                profile = await Brand.create({
+                    id: profileId,
+                    user_id: userId,
+                    company_name: company_name || 'My Brand',
+                    business_email: email,
+                    phone: phone || '',
+                    category: category || 'General',
+                    location_name: location_name || city || 'Bengaluru',
+                    address: address || '',
+                    city: city || 'Bengaluru',
+                    state: state || 'Karnataka',
+                    pin_code: pin_code || '',
+                    description: description || '',
+                    verified: 1
+                });
+            } else if (role === 'creator') {
+                profileId = 'creator_' + Date.now();
+                let uname = (username || '').trim();
+                if (!uname) {
+                    uname = 'user_' + Math.floor(Math.random() * 10000);
+                }
+                profile = await Creator.create({
+                    id: profileId,
+                    user_id: userId,
+                    full_name: full_name || 'New Creator',
+                    username: uname,
+                    phone: phone || '',
+                    location_name: location_name || city || 'Bengaluru',
+                    city: city || 'Bengaluru',
+                    state: state || 'Karnataka',
+                    bio: bio || '',
+                    categories: ['Lifestyle'],
+                    languages: ['English'],
+                    verified: 1
+                });
+            }
+        } catch (profileErr) {
+            // Clean up the created user if profile creation fails
+            await User.deleteOne({ id: userId });
+            throw profileErr;
+        }
 
         const token = jwt.sign({ id: userId, email, role, profileId }, JWT_SECRET, { expiresIn: '7d' });
 
@@ -83,12 +97,21 @@ router.post('/register', (eReq, res) => {
         });
     } catch (err) {
         console.error('Registration error:', err);
+        if (err.code === 11000 || (err.message && err.message.includes('E11000'))) {
+            if (err.message.includes('username')) {
+                return res.status(400).json({ success: false, error: 'That username is already taken. Please enter a different username.' });
+            }
+            if (err.message.includes('email')) {
+                return res.status(400).json({ success: false, error: 'User with this email is already registered.' });
+            }
+            return res.status(400).json({ success: false, error: 'Registration failed due to a duplicate field value.' });
+        }
         return res.status(500).json({ success: false, error: 'Registration failed. ' + err.message });
     }
 });
 
 // POST /api/auth/login
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;
 
@@ -96,7 +119,7 @@ router.post('/login', (req, res) => {
             return res.status(400).json({ success: false, error: 'Email and password required.' });
         }
 
-        const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+        const user = await User.findOne({ email }).lean();
         if (!user) {
             return res.status(401).json({ success: false, error: 'Invalid email or password.' });
         }
@@ -110,10 +133,10 @@ router.post('/login', (req, res) => {
         let profileId = '';
 
         if (user.role === 'brand') {
-            profile = db.prepare('SELECT * FROM brands WHERE user_id = ?').get(user.id);
+            profile = await Brand.findOne({ user_id: user.id }).lean();
             if (profile) profileId = profile.id;
         } else if (user.role === 'creator') {
-            profile = db.prepare('SELECT * FROM creators WHERE user_id = ?').get(user.id);
+            profile = await Creator.findOne({ user_id: user.id }).lean();
             if (profile) profileId = profile.id;
         }
 
@@ -137,18 +160,18 @@ router.post('/login', (req, res) => {
 });
 
 // GET /api/auth/me
-router.get('/me', authenticateToken, (req, res) => {
+router.get('/me', authenticateToken, async (req, res) => {
     try {
-        const user = db.prepare('SELECT id, email, role, is_verified, created_at FROM users WHERE id = ?').get(req.user.id);
+        const user = await User.findOne({ id: req.user.id }).select('id email role is_verified created_at').lean();
         if (!user) {
             return res.status(404).json({ success: false, error: 'User not found.' });
         }
 
         let profile = null;
         if (user.role === 'brand') {
-            profile = db.prepare('SELECT * FROM brands WHERE user_id = ?').get(user.id);
+            profile = await Brand.findOne({ user_id: user.id }).lean();
         } else if (user.role === 'creator') {
-            profile = db.prepare('SELECT * FROM creators WHERE user_id = ?').get(user.id);
+            profile = await Creator.findOne({ user_id: user.id }).lean();
         }
 
         return res.json({

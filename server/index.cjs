@@ -1,8 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const db = require('./db/database.cjs');
+const { connectDB } = require('./db/database.cjs');
 const seedDatabase = require('./db/seed.cjs');
+const { User } = require('./models/index.cjs');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -11,13 +12,6 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Check if database needs initial seeding
-const userCount = db.prepare('SELECT COUNT(*) AS count FROM users').get().count;
-if (userCount === 0) {
-    console.log('🌱 Database is empty. Running initial seed...');
-    seedDatabase();
-}
 
 // API Routes Registration
 app.use('/api/auth', require('./routes/auth.cjs'));
@@ -34,7 +28,7 @@ app.use('/api/admin', require('./routes/admin.cjs'));
 
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {
-    res.json({ success: true, status: 'API Operational', timestamp: new Date().toISOString() });
+    res.json({ success: true, status: 'API Operational (MongoDB)', timestamp: new Date().toISOString() });
 });
 
 // Global Error Handler
@@ -43,7 +37,27 @@ app.use((err, req, res, next) => {
     res.status(500).json({ success: false, error: 'Internal Server Error. ' + err.message });
 });
 
-// Start Express Server
-app.listen(PORT, () => {
-    console.log(`🚀 Brand x Creator API Server running on http://localhost:${PORT}`);
-});
+// Connect to Database and start Express Server
+async function startServer() {
+    const dbConnected = await connectDB();
+
+    if (dbConnected) {
+        try {
+            // Check if database needs initial seeding
+            const userCount = await User.countDocuments({});
+            if (userCount === 0) {
+                console.log('🌱 Database is empty. Running initial seed...');
+                await seedDatabase();
+            }
+        } catch (err) {
+            console.error('⚠️ DB Seed Error:', err.message);
+        }
+    }
+
+    app.listen(PORT, () => {
+        console.log(`🚀 Brand x Creator API Server running on http://localhost:${PORT}`);
+    });
+}
+
+startServer();
+

@@ -28,6 +28,8 @@ export const CampaignDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
 
+  const [hasApplied, setHasApplied] = useState(false);
+
   // Application Form State
   const [pitch, setPitch] = useState('');
   const [contentIdea, setContentIdea] = useState('');
@@ -41,6 +43,13 @@ export const CampaignDetailPage: React.FC = () => {
         if (res.success) {
           setCampaign(res.campaign);
         }
+        if (user?.role === 'creator') {
+          const appRes = await api.getApplications();
+          if (appRes.success) {
+            const applied = (appRes.applications || []).some((a: any) => a.campaign_id === id);
+            setHasApplied(applied);
+          }
+        }
       } catch (e) {
         showToast('Failed to load campaign details', 'error');
       } finally {
@@ -48,7 +57,7 @@ export const CampaignDetailPage: React.FC = () => {
       }
     };
     fetchDetail();
-  }, [id]);
+  }, [id, user]);
 
   const handleApply = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,6 +70,7 @@ export const CampaignDetailPage: React.FC = () => {
         expected_date: 'In 5 Days'
       });
       showToast('🎉 Application submitted to brand successfully!');
+      setHasApplied(true);
       setIsApplyModalOpen(false);
     } catch (err: any) {
       showToast(err.message || 'Failed to submit application', 'error');
@@ -176,7 +186,11 @@ export const CampaignDetailPage: React.FC = () => {
             <div className="text-xs text-slate-500">Submit your pitch idea directly to the brand for review.</div>
           </div>
 
-          {isCreator ? (
+          {hasApplied ? (
+            <div className="px-5 py-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-extrabold text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 fill-emerald-500/20" /> Application Submitted & Under Review
+            </div>
+          ) : isCreator ? (
             <button
               onClick={() => setIsApplyModalOpen(true)}
               className="px-6 py-3.5 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs shadow-lg shadow-purple-500/20 flex items-center gap-2 transition-all"

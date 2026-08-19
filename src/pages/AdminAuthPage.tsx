@@ -4,8 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { ShieldCheck, Mail, Lock, ArrowRight } from 'lucide-react';
 
 export const AdminAuthPage: React.FC = () => {
-  const [email, setEmail] = useState('admin@creatorhub.io');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   const { login } = useAuth();
@@ -76,10 +76,6 @@ export const AdminAuthPage: React.FC = () => {
             <ArrowRight className="w-4 h-4" />
           </button>
         </form>
-
-        <div className="mt-4 pt-4 border-t border-slate-700 text-center text-xs text-slate-400">
-          Demo Admin Credentials: <code className="text-indigo-400 font-mono">admin@creatorhub.io / admin123</code>
-        </div>
       </div>
     </div>
   );

@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Building2, Mail, Lock, Phone, MapPin, Globe, Sparkles, ArrowRight, Zap, CheckCircle2 } from 'lucide-react';
+import { Building2, Mail, Lock, Phone, MapPin, Globe, ArrowRight, CheckCircle2 } from 'lucide-react';
 
 export const BrandAuthPage: React.FC = () => {
   const [isRegister, setIsRegister] = useState(false);
-  const [email, setEmail] = useState('marketing@ccd.com');
-  const [password, setPassword] = useState('Password123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [phone, setPhone] = useState('');
   const [category, setCategory] = useState('Food & Beverage');
@@ -41,11 +41,6 @@ export const BrandAuthPage: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
     }
-  };
-
-  const fillDemo = () => {
-    setEmail('marketing@ccd.com');
-    setPassword('Password123!');
   };
 
   return (
@@ -155,25 +150,6 @@ export const BrandAuthPage: React.FC = () => {
         </form>
 
         <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2">
-          <button
-            onClick={fillDemo}
-            type="button"
-            className="w-full py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
-          >
-            <Zap className="w-3.5 h-3.5 text-amber-500" /> One-Click Demo Login as CCD Brand
-          </button>
-
-          <button
-            onClick={() => {
-              setEmail('campaigns@nescafe.com');
-              setPassword('Password123!');
-            }}
-            type="button"
-            className="w-full py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-600" /> One-Click Demo Login as Nescafé Brand ☕
-          </button>
-
           <button
             onClick={() => setIsRegister(!isRegister)}
             className="text-xs text-blue-600 dark:text-blue-400 font-bold text-center hover:underline"

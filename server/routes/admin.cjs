@@ -1,19 +1,33 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db/database.cjs');
+const { User, Brand, Creator, Campaign, Collaboration, Payment, Report } = require('../models/index.cjs');
 const { authenticateToken, requireAdmin } = require('../middleware/auth.cjs');
 
 // GET /api/admin/stats
-router.get('/stats', authenticateToken, requireAdmin, (req, res) => {
+router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const totalUsers = db.prepare('SELECT COUNT(*) AS count FROM users').get().count;
-        const totalBrands = db.prepare('SELECT COUNT(*) AS count FROM brands').get().count;
-        const totalCreators = db.prepare('SELECT COUNT(*) AS count FROM creators').get().count;
-        const activeCampaigns = db.prepare('SELECT COUNT(*) AS count FROM campaigns WHERE status = "published"').get().count;
-        const completedCampaigns = db.prepare('SELECT COUNT(*) AS count FROM campaigns WHERE status = "closed"').get().count;
-        const totalVolume = db.prepare('SELECT SUM(amount) AS total FROM payments WHERE status = "paid"').get().total || 0;
+        const [
+            totalUsers,
+            totalBrands,
+            totalCreators,
+            activeCampaigns,
+            completedCampaigns,
+            collaborations,
+            payments,
+            pendingReports
+        ] = await Promise.all([
+            User.countDocuments({}),
+            Brand.countDocuments({}),
+            Creator.countDocuments({}),
+            Campaign.countDocuments({ status: 'published' }),
+            Campaign.countDocuments({ status: 'closed' }),
+            Collaboration.find({}).lean(),
+            Payment.find({ status: 'paid' }).lean(),
+            Report.countDocuments({ status: 'pending' })
+        ]);
 
-        const pendingReports = db.prepare('SELECT COUNT(*) AS count FROM reports WHERE status = "pending"').get().count;
+        const totalVolume = payments.reduce((acc, p) => acc + (p.amount || 0), 0);
+        const workedTogetherCount = collaborations.length;
 
         return res.json({
             success: true,
@@ -23,6 +37,7 @@ router.get('/stats', authenticateToken, requireAdmin, (req, res) => {
                 totalCreators,
                 activeCampaigns,
                 completedCampaigns,
+                workedTogetherCount,
                 totalVolume,
                 pendingReports
             }
@@ -33,16 +48,32 @@ router.get('/stats', authenticateToken, requireAdmin, (req, res) => {
 });
 
 // GET /api/admin/users
-router.get('/users', authenticateToken, requireAdmin, (req, res) => {
+router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const users = db.prepare(`
-            SELECT u.id, u.email, u.role, u.is_verified, u.created_at,
-                   b.company_name AS brand_name, cr.full_name AS creator_name
-            FROM users u
-            LEFT JOIN brands b ON b.user_id = u.id
-            LEFT JOIN creators cr ON cr.user_id = u.id
-            ORDER BY u.created_at DESC
-        `).all();
+        const rawUsers = await User.find({}).sort({ created_at: -1 }).lean();
+
+        const userIds = rawUsers.map(u => u.id);
+        const [brands, creators] = await Promise.all([
+            Brand.find({ user_id: { $in: userIds } }).lean(),
+            Creator.find({ user_id: { $in: userIds } }).lean()
+        ]);
+
+        const brandMap = {}; brands.forEach(b => brandMap[b.user_id] = b);
+        const creatorMap = {}; creators.forEach(cr => creatorMap[cr.user_id] = cr);
+
+        const users = rawUsers.map(u => {
+            const b = brandMap[u.id] || {};
+            const cr = creatorMap[u.id] || {};
+            return {
+                id: u.id,
+                email: u.email,
+                role: u.role,
+                is_verified: u.is_verified,
+                created_at: u.created_at,
+                brand_name: b.company_name || null,
+                creator_name: cr.full_name || null
+            };
+        });
 
         return res.json({ success: true, count: users.length, users });
     } catch (err) {
@@ -51,19 +82,19 @@ router.get('/users', authenticateToken, requireAdmin, (req, res) => {
 });
 
 // PUT /api/admin/verify-user/:id
-router.put('/verify-user/:id', authenticateToken, requireAdmin, (req, res) => {
+router.put('/verify-user/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const userId = req.params.id;
-        const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+        const user = await User.findOne({ id: userId }).lean();
         if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
 
         const nextStatus = user.is_verified ? 0 : 1;
-        db.prepare('UPDATE users SET is_verified = ? WHERE id = ?').run(nextStatus, userId);
+        await User.updateOne({ id: userId }, { is_verified: nextStatus });
 
         if (user.role === 'brand') {
-            db.prepare('UPDATE brands SET verified = ? WHERE user_id = ?').run(nextStatus, userId);
+            await Brand.updateOne({ user_id: userId }, { verified: nextStatus });
         } else if (user.role === 'creator') {
-            db.prepare('UPDATE creators SET verified = ? WHERE user_id = ?').run(nextStatus, userId);
+            await Creator.updateOne({ user_id: userId }, { verified: nextStatus });
         }
 
         return res.json({ success: true, message: `Verification updated to ${nextStatus ? 'Verified' : 'Unverified'}.` });
@@ -72,20 +103,67 @@ router.put('/verify-user/:id', authenticateToken, requireAdmin, (req, res) => {
     }
 });
 
-// GET /api/admin/reports
-router.get('/reports', authenticateToken, requireAdmin, (req, res) => {
+// GET /api/admin/collaborations (Brand x Creator Working Partnerships & Financial Payouts)
+router.get('/collaborations', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const reports = db.prepare(`
-            SELECT rep.*, u.email AS reporter_email
-            FROM reports rep
-            JOIN users u ON rep.reporter_id = u.id
-            ORDER BY rep.created_at DESC
-        `).all();
+        const rawCollabs = await Collaboration.find({}).sort({ created_at: -1 }).lean();
 
-        return res.json({ success: true, count: reports.length, reports });
+        const campaignIds = [...new Set(rawCollabs.map(c => c.campaign_id))];
+        const brandIds = [...new Set(rawCollabs.map(c => c.brand_id))];
+        const creatorIds = [...new Set(rawCollabs.map(c => c.creator_id))];
+        const collabIds = rawCollabs.map(c => c.id);
+
+        const [campaigns, brands, creators, payments] = await Promise.all([
+            Campaign.find({ id: { $in: campaignIds } }).lean(),
+            Brand.find({ id: { $in: brandIds } }).lean(),
+            Creator.find({ id: { $in: creatorIds } }).lean(),
+            Payment.find({ collaboration_id: { $in: collabIds } }).lean()
+        ]);
+
+        const campaignMap = {}; campaigns.forEach(c => campaignMap[c.id] = c);
+        const brandMap = {}; brands.forEach(b => brandMap[b.id] = b);
+        const creatorMap = {}; creators.forEach(cr => creatorMap[cr.id] = cr);
+        const paymentMap = {}; payments.forEach(p => paymentMap[p.collaboration_id] = p);
+
+        const collaborations = rawCollabs.map(col => {
+            const camp = campaignMap[col.campaign_id] || {};
+            const brand = brandMap[col.brand_id] || {};
+            const creator = creatorMap[col.creator_id] || {};
+            const payment = paymentMap[col.id] || {};
+
+            const rewardAmount = camp.reward_per_creator || 0;
+            const paidAmount = payment.amount || (payment.status === 'paid' || col.current_step >= 5 ? rewardAmount : 0);
+
+            return {
+                id: col.id,
+                brand_name: brand.company_name || 'Brand Partner',
+                brand_logo: brand.logo_url || '',
+                creator_name: creator.full_name || 'Creator Partner',
+                creator_username: creator.username || '',
+                creator_avatar: creator.avatar_url || '',
+                campaign_title: camp.title || 'Sponsorship Campaign',
+                reward_amount: rewardAmount,
+                paid_amount: paidAmount,
+                payment_status: payment.status || (col.current_step >= 5 ? 'paid' : 'escrow_locked'),
+                status: col.status,
+                current_step: col.current_step,
+                created_at: col.created_at
+            };
+        });
+
+        const totalPaidOut = collaborations.reduce((sum, item) => sum + (item.paid_amount || 0), 0);
+
+        return res.json({
+            success: true,
+            count: collaborations.length,
+            totalPaidOut,
+            collaborations
+        });
     } catch (err) {
-        return res.status(500).json({ success: false, error: 'Failed to load reports.' });
+        console.error('Error fetching admin collaborations:', err);
+        return res.status(500).json({ success: false, error: 'Failed to load collaborations.' });
     }
 });
 
 module.exports = router;
+
