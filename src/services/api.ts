@@ -1,4 +1,10 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const getBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (!envUrl) return '/api';
+  return envUrl.endsWith('/api') ? envUrl : `${envUrl.replace(/\/$/, '')}/api`;
+};
+
+const API_BASE_URL = getBaseUrl();
 
 function getAuthHeaders() {
   const token = localStorage.getItem('token');
@@ -20,16 +26,29 @@ async function request(endpoint: string, options: RequestInit = {}) {
 
   try {
     const response = await fetch(url, config);
-    const data = await response.json();
+    const text = await response.text();
+    let data: any = {};
 
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || 'API Request failed');
+    if (text && text.trim().length > 0) {
+      try {
+        data = JSON.parse(text);
+      } catch (jsonErr) {
+        throw new Error(`Server returned non-JSON response (${response.status}). If deployed on Netlify, set VITE_API_URL in Netlify settings to your backend URL.`);
+      }
+    } else {
+      if (!response.ok) {
+        throw new Error(`Server returned empty response (${response.status}). Ensure backend API is running.`);
+      }
+    }
+
+    if (!response.ok || (data && data.success === false)) {
+      throw new Error(data?.error || `API request failed with status ${response.status}`);
     }
 
     return data;
   } catch (err: any) {
     if (err.name === 'TypeError' && (err.message === 'Failed to fetch' || err.message.includes('fetch'))) {
-      throw new Error('Backend server is offline or unreachable. Please ensure the server (npm run server) is running on port 5000.');
+      throw new Error('Backend server is offline or unreachable. Please verify VITE_API_URL or ensure backend server is running.');
     }
     throw err;
   }
