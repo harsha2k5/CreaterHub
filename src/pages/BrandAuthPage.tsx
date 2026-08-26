@@ -15,8 +15,42 @@ export const BrandAuthPage: React.FC = () => {
   const [description, setDescription] = useState('');
   const [error, setError] = useState('');
 
-  const { login, registerUser } = useAuth();
+  const { user, login, registerUser, logout } = useAuth();
   const navigate = useNavigate();
+
+  if (user) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 py-12 px-4 flex items-center justify-center">
+        <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center space-y-5 shadow-xl">
+          <div className="w-14 h-14 bg-blue-100 dark:bg-blue-950/60 rounded-2xl flex items-center justify-center mx-auto text-blue-600 dark:text-blue-400">
+            <Building2 className="w-7 h-7" />
+          </div>
+          <div>
+            <h2 className="font-heading font-extrabold text-2xl text-slate-900 dark:text-white">
+              Already Signed In
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              You are currently logged in as <strong className="text-slate-800 dark:text-slate-200">{(user.profile as any)?.company_name || (user.profile as any)?.full_name || user.email}</strong> ({user.email}).
+            </p>
+          </div>
+          <div className="space-y-2.5 pt-2">
+            <button
+              onClick={() => navigate(user.role === 'brand' ? '/brand/dashboard' : '/creator/dashboard')}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-2xl shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 cursor-pointer transition-all"
+            >
+              Go to {user.role === 'brand' ? 'Brand' : 'Creator'} Dashboard <ArrowRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => logout()}
+              className="w-full py-3 bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-700 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 font-extrabold text-xs rounded-2xl cursor-pointer transition-all"
+            >
+              Log Out & Switch Account
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

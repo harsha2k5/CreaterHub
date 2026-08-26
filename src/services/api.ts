@@ -8,7 +8,7 @@ const API_BASE_URL = getBaseUrl();
 console.log(`[API Config] Base API URL: "${API_BASE_URL}" | VITE_API_URL: "${import.meta.env.VITE_API_URL || 'NOT_SET'}"`);
 
 function getAuthHeaders() {
-  const token = localStorage.getItem('token');
+  const token = sessionStorage.getItem('token') || localStorage.getItem('token');
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -95,6 +95,12 @@ export const api = {
     return request(`/creators${query ? `?${query}` : ''}`);
   },
   getCreatorById: (id: string) => request(`/creators/${id}`),
+  sendDirectPitch: (creatorId: string, payload: any) =>
+    request(`/creators/${creatorId}/pitch`, { method: 'POST', body: JSON.stringify(payload) }),
+  analyzeCreatorProfile: (socialLink: string) =>
+    request('/creators/analyze-profile', { method: 'POST', body: JSON.stringify({ social_link: socialLink }) }),
+  syncCreatorLiveData: (creatorId: string) =>
+    request(`/creators/${creatorId}/sync-live-data`, { method: 'POST' }),
   getBrands: () => request('/brands'),
   getBrandById: (id: string) => request(`/brands/${id}`),
 

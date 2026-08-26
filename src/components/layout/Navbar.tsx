@@ -65,6 +65,19 @@ export const Navbar: React.FC = () => {
 
           {user && (
             <>
+              {isBrand && (
+                <Link
+                  to="/pitch-creators"
+                  className={`px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-colors ${
+                    location.pathname === '/pitch-creators'
+                      ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 font-extrabold'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <UserCheck className="w-4 h-4 text-purple-500" /> Pitch Creators
+                </Link>
+              )}
+
               <Link
                 to={isBrand ? '/brand/dashboard' : '/creator/dashboard'}
                 className={`px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-colors ${

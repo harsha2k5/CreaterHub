@@ -18,7 +18,7 @@ app.use('/api/auth', require('./routes/auth.cjs'));
 app.use('/api/campaigns', require('./routes/campaigns.cjs'));
 app.use('/api/applications', require('./routes/applications.cjs'));
 app.use('/api/collaborations', require('./routes/collaborations.cjs'));
-app.use('/api/creators', require('./routes/creators.cjs'));
+app.use('/api/creators', require('./routes/creators.cjs').router);
 app.use('/api/brands', require('./routes/brands.cjs'));
 app.use('/api/messages', require('./routes/messages.cjs'));
 app.use('/api/notifications', require('./routes/notifications.cjs'));

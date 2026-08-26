@@ -9,12 +9,47 @@ export const CreatorAuthPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
+  const [socialLink, setSocialLink] = useState('');
   const [city, setCity] = useState('Bengaluru');
   const [bio, setBio] = useState('');
   const [error, setError] = useState('');
 
-  const { login, registerUser } = useAuth();
+  const { user, login, registerUser, logout } = useAuth();
   const navigate = useNavigate();
+
+  if (user) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 py-12 px-4 flex items-center justify-center">
+        <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center space-y-5 shadow-xl">
+          <div className="w-14 h-14 bg-purple-100 dark:bg-purple-950/60 rounded-2xl flex items-center justify-center mx-auto text-purple-600 dark:text-purple-400">
+            <Users className="w-7 h-7" />
+          </div>
+          <div>
+            <h2 className="font-heading font-extrabold text-2xl text-slate-900 dark:text-white">
+              Already Signed In
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              You are currently logged in as <strong className="text-slate-800 dark:text-slate-200">{(user.profile as any)?.full_name || (user.profile as any)?.company_name || user.email}</strong> ({user.email}).
+            </p>
+          </div>
+          <div className="space-y-2.5 pt-2">
+            <button
+              onClick={() => navigate(user.role === 'brand' ? '/brand/dashboard' : '/creator/dashboard')}
+              className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs rounded-2xl shadow-lg shadow-purple-500/20 flex items-center justify-center gap-2 cursor-pointer transition-all"
+            >
+              Go to {user.role === 'brand' ? 'Brand' : 'Creator'} Dashboard <ArrowRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => logout()}
+              className="w-full py-3 bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-700 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 font-extrabold text-xs rounded-2xl cursor-pointer transition-all"
+            >
+              Log Out & Switch Account
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +62,7 @@ export const CreatorAuthPage: React.FC = () => {
           password,
           full_name: fullName,
           username: username || 'user_' + Date.now(),
+          social_link: socialLink,
           city,
           bio
         });
@@ -97,6 +133,20 @@ export const CreatorAuthPage: React.FC = () => {
                     value={city}
                     onChange={e => setCity(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">Instagram / Social Media Profile Link (For AI Analytics)</label>
+                <div className="relative">
+                  <AtSign className="w-4 h-4 text-purple-400 absolute left-3.5 top-3" />
+                  <input
+                    type="text"
+                    placeholder="https://instagram.com/alexcreates or @alexcreates"
+                    value={socialLink}
+                    onChange={e => setSocialLink(e.target.value)}
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:outline-none focus:border-purple-500"
                   />
                 </div>
               </div>

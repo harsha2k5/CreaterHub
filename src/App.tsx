@@ -14,6 +14,7 @@ import { CampaignDetailPage } from './pages/CampaignDetailPage';
 import { CollaborationsPage } from './pages/CollaborationsPage';
 import { MessagesPage } from './pages/MessagesPage';
 import { CreatorProfilePage } from './pages/CreatorProfilePage';
+import { DirectPitchPage } from './pages/DirectPitchPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import './index.css';
@@ -29,6 +30,7 @@ function MainLayout() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/explore" element={<ExploreCampaignsPage />} />
+          <Route path="/pitch-creators" element={<DirectPitchPage />} />
           <Route path="/campaigns/:id" element={<CampaignDetailPage />} />
           <Route path="/brand/login" element={<BrandAuthPage />} />
           <Route path="/brand/register" element={<BrandAuthPage />} />

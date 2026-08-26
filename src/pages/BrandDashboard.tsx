@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { Campaign, Application } from '../types';
@@ -31,6 +32,7 @@ const DEMO_CHART_DATA = [
 
 export const BrandDashboard: React.FC = () => {
   const { user, showToast } = useAuth();
+  const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -129,12 +131,20 @@ export const BrandDashboard: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="px-5 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-all shrink-0"
-          >
-            <PlusCircle className="w-4 h-4" /> Create New Brief & Fund Escrow
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => navigate('/pitch-creators')}
+              className="px-5 py-3 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:opacity-95 text-white font-extrabold text-xs shadow-lg shadow-purple-500/20 flex items-center gap-2 transition-all shrink-0 cursor-pointer"
+            >
+              <Send className="w-4 h-4" /> Pitch Creators Directly
+            </button>
+            <button
+              onClick={() => setIsCreateModalOpen(true)}
+              className="px-5 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-all shrink-0 cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4" /> Create New Brief & Fund Escrow
+            </button>
+          </div>
         </div>
 
         {/* Stats Grid */}

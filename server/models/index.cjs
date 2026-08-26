@@ -72,14 +72,21 @@ const creatorSchema = new mongoose.Schema({
     categories: { type: mongoose.Schema.Types.Mixed, default: [] },
     languages: { type: mongoose.Schema.Types.Mixed, default: [] },
     followers: { type: Number, default: 0 },
-    avg_views: { type: Number, default: 0 },
-    avg_likes: { type: Number, default: 0 },
-    avg_comments: { type: Number, default: 0 },
+    following: { type: Number, default: 412 },
+    posts_count: { type: Number, default: 342 },
+    reels_count: { type: Number, default: 186 },
+    avg_views: { type: Number, default: 45200 },
+    avg_likes: { type: Number, default: 8650 },
+    avg_comments: { type: Number, default: 640 },
     engagement_rate: { type: Number, default: 4.5 },
     rating: { type: Number, default: 5.0 },
     review_count: { type: Number, default: 0 },
     profile_completion: { type: Number, default: 85 },
     verified: { type: Number, default: 1 },
+    social_link: { type: String, default: '' },
+    profile_analysis: { type: mongoose.Schema.Types.Mixed, default: null },
+    followers_list: { type: mongoose.Schema.Types.Mixed, default: [] },
+    following_list: { type: mongoose.Schema.Types.Mixed, default: [] },
     social_accounts: [socialAccountSchema],
     portfolio_items: [portfolioItemSchema]
 });
@@ -129,14 +136,19 @@ const campaignSchema = new mongoose.Schema({
 // Application Schema
 const applicationSchema = new mongoose.Schema({
     id: { type: String, required: true, unique: true },
-    campaign_id: { type: String, required: true },
+    campaign_id: { type: String, default: '' },
     creator_id: { type: String, required: true },
+    brand_id: { type: String, default: '' },
+    type: { type: String, default: 'application' }, // 'application' | 'direct_pitch'
+    custom_title: { type: String, default: '' },
+    custom_budget: { type: Number, default: 0 },
+    custom_deliverables: { type: String, default: '' },
     pitch: { type: String, required: true },
     relevant_experience: { type: String },
-    content_idea: { type: String, required: true },
+    content_idea: { type: String, default: '' },
     sample_links: { type: String },
     expected_date: { type: String },
-    status: { type: String, default: 'submitted' },
+    status: { type: String, default: 'submitted' }, // 'submitted', 'invited', 'accepted', 'rejected'
     applied_at: { type: Date, default: Date.now }
 });
 

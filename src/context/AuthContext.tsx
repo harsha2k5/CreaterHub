@@ -20,13 +20,17 @@ interface AuthContextType {
   logout: () => void;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   fetchNotifications: () => Promise<void>;
+  refreshSessionUser: () => Promise<void>;
+  updateUserProfile: (profileData: any) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(
+    sessionStorage.getItem('token') || localStorage.getItem('token')
+  );
   const [loading, setLoading] = useState<boolean>(true);
   const [activeRole, setActiveRole] = useState<'brand' | 'creator' | 'admin'>('creator');
   const [unreadNotifications, setUnreadNotifications] = useState<number>(0);
@@ -76,7 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string): Promise<User> => {
     const res = await api.login({ email, password });
-    localStorage.setItem('token', res.token);
+    sessionStorage.setItem('token', res.token);
     setToken(res.token);
     setUser(res.user);
     setActiveRole(res.user.role);
@@ -87,7 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const registerUser = async (payload: any): Promise<User> => {
     const res = await api.register(payload);
-    localStorage.setItem('token', res.token);
+    sessionStorage.setItem('token', res.token);
     setToken(res.token);
     setUser(res.user);
     setActiveRole(res.user.role);
@@ -96,11 +100,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    sessionStorage.removeItem('token');
     localStorage.removeItem('token');
     setToken(null);
     setUser(null);
     setUnreadNotifications(0);
     showToast('Logged out of session.', 'info');
+  };
+
+  const refreshSessionUser = async () => {
+    if (!token) return;
+    try {
+      const res = await api.getMe();
+      if (res.user) {
+        setUser(res.user);
+      }
+    } catch (e) {
+      console.error('Error refreshing session:', e);
+    }
+  };
+
+  const updateUserProfile = (profileData: any) => {
+    setUser(prev => prev ? { ...prev, profile: { ...(prev.profile || {}), ...profileData } } : prev);
   };
 
   return (
@@ -116,7 +137,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         registerUser,
         logout,
         showToast,
-        fetchNotifications
+        fetchNotifications,
+        refreshSessionUser,
+        updateUserProfile
       }}
     >
       {children}

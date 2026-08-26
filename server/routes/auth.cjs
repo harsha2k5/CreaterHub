@@ -5,10 +5,12 @@ const jwt = require('jsonwebtoken');
 const { User, Brand, Creator } = require('../models/index.cjs');
 const { JWT_SECRET, authenticateToken } = require('../middleware/auth.cjs');
 
+const { generateProfileAnalysis, processCreatorRecord } = require('./creators.cjs');
+
 // POST /api/auth/register
 router.post('/register', async (eReq, res) => {
     try {
-        const { role, email, password, company_name, full_name, username, phone, category, city, state, location_name, address, pin_code, description, bio } = eReq.body;
+        const { role, email, password, company_name, full_name, username, phone, category, city, state, location_name, address, pin_code, description, bio, social_link } = eReq.body;
 
         if (!email || !password || !role) {
             return res.status(400).json({ success: false, error: 'Email, password, and role are required.' });
@@ -67,6 +69,7 @@ router.post('/register', async (eReq, res) => {
                 if (!uname) {
                     uname = 'user_' + Math.floor(Math.random() * 10000);
                 }
+                const initialAnalysis = social_link ? generateProfileAnalysis(social_link, bio, ['Lifestyle']) : null;
                 profile = await Creator.create({
                     id: profileId,
                     user_id: userId,
@@ -79,6 +82,8 @@ router.post('/register', async (eReq, res) => {
                     bio: bio || '',
                     categories: ['Lifestyle'],
                     languages: ['English'],
+                    social_link: social_link || '',
+                    profile_analysis: initialAnalysis,
                     verified: 1
                 });
             }
@@ -136,7 +141,8 @@ router.post('/login', async (req, res) => {
             profile = await Brand.findOne({ user_id: user.id }).lean();
             if (profile) profileId = profile.id;
         } else if (user.role === 'creator') {
-            profile = await Creator.findOne({ user_id: user.id }).lean();
+            const rawProfile = await Creator.findOne({ user_id: user.id }).lean();
+            profile = processCreatorRecord(rawProfile);
             if (profile) profileId = profile.id;
         }
 
@@ -171,7 +177,8 @@ router.get('/me', authenticateToken, async (req, res) => {
         if (user.role === 'brand') {
             profile = await Brand.findOne({ user_id: user.id }).lean();
         } else if (user.role === 'creator') {
-            profile = await Creator.findOne({ user_id: user.id }).lean();
+            const rawProfile = await Creator.findOne({ user_id: user.id }).lean();
+            profile = processCreatorRecord(rawProfile);
         }
 
         return res.json({
