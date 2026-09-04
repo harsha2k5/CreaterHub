@@ -472,7 +472,7 @@ class InstagramService {
 
         const account = queryOne(
             `SELECT id, instagram_user_id, instagram_username, username,
-                    full_name, profile_picture_url, biography, bio, website,
+                    full_name, profile_url, profile_picture_url, biography, bio, website,
                     account_type, connection_status, is_connected, token_expires_at,
                     last_synced_at
              FROM instagram_accounts
@@ -525,6 +525,7 @@ class InstagramService {
                 instagram_user_id: account.instagram_user_id,
                 username: account.instagram_username || account.username,
                 full_name: account.full_name,
+                profile_url: account.profile_url || `https://instagram.com/${account.instagram_username || account.username}`,
                 profile_picture_url: account.profile_picture_url,
                 biography: account.biography || account.bio,
                 website: account.website,

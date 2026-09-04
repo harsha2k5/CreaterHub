@@ -73,6 +73,7 @@ async function initDB() {
                     ['encrypted_access_token', 'TEXT'],
                     ['biography', 'TEXT'],
                     ['website', 'TEXT'],
+                    ['profile_url', 'TEXT'],
                     ['connection_status', "TEXT DEFAULT 'CONNECTED'"]
                 ];
                 for (const [col, typeDef] of accountAdditions) {
