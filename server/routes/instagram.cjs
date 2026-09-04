@@ -231,6 +231,7 @@ router.post('/sync', authenticateToken, requireCreator, async (req, res) => {
             return res.status(404).json({ success: false, error: 'Creator profile not found.' });
         }
 
+        await InstagramService.syncAccount(creator.id);
         const status = InstagramService.getStatus(creator.id);
         return res.json({
             success: true,
@@ -357,7 +358,7 @@ function extractInstagramUsername(input) {
  * POST /api/instagram/connect-by-link
  * Effortlessly links an Instagram account by pasting an Instagram profile URL or handle.
  */
-router.post('/connect-by-link', authenticateToken, requireCreator, (req, res) => {
+router.post('/connect-by-link', authenticateToken, requireCreator, async (req, res) => {
     try {
         const creator = queryOne('SELECT * FROM creator_profiles WHERE user_id = ?', [req.user.id]);
         if (!creator) {
@@ -377,7 +378,7 @@ router.post('/connect-by-link', authenticateToken, requireCreator, (req, res) =>
             });
         }
 
-        const result = InstagramService.connectByProfileLink({
+        const result = await InstagramService.connectByProfileLink({
             creatorId: creator.id,
             userId: req.user.id,
             creator,

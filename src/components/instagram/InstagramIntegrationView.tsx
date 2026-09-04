@@ -53,8 +53,8 @@ export const InstagramIntegrationView: React.FC<InstagramIntegrationViewProps> =
 
   // Custom stats inputs
   const [showCustomFields, setShowCustomFields] = useState(false);
-  const [customFollowers, setCustomFollowers] = useState('18400');
-  const [customEngagement, setCustomEngagement] = useState('4.35');
+  const [customFollowers, setCustomFollowers] = useState('');
+  const [customEngagement, setCustomEngagement] = useState('');
   const [customBio, setCustomBio] = useState('');
 
   const [localData, setLocalData] = useState<any>(data);
@@ -107,9 +107,9 @@ export const InstagramIntegrationView: React.FC<InstagramIntegrationViewProps> =
     try {
       const res = await api.connectInstagramByLink({
         profileUrl: profileLink.trim(),
-        followersCount: customFollowers ? Number(customFollowers) : undefined,
-        engagementRate: customEngagement ? Number(customEngagement) : undefined,
-        bio: customBio || undefined
+        followersCount: customFollowers.trim() ? Number(customFollowers) : undefined,
+        engagementRate: customEngagement.trim() ? Number(customEngagement) : undefined,
+        bio: customBio.trim() || undefined
       });
 
       if (res.success) {
@@ -284,21 +284,21 @@ export const InstagramIntegrationView: React.FC<InstagramIntegrationViewProps> =
                 <div className="mt-3 p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Followers Count</label>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Followers Count (Optional override)</label>
                       <input
                         type="number"
-                        placeholder="18400"
+                        placeholder="Auto-detected from Instagram"
                         value={customFollowers}
                         onChange={(e) => setCustomFollowers(e.target.value)}
                         className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-purple-400"
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Engagement Rate (%)</label>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Engagement Rate (%) (Optional)</label>
                       <input
                         type="number"
                         step="0.01"
-                        placeholder="4.35"
+                        placeholder="Auto-calculated"
                         value={customEngagement}
                         onChange={(e) => setCustomEngagement(e.target.value)}
                         className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-purple-400"
@@ -443,7 +443,10 @@ export const InstagramIntegrationView: React.FC<InstagramIntegrationViewProps> =
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setShowEditLinkModal(true)}
+            onClick={() => {
+              setProfileLink(account.profile_url || (account.username ? `https://instagram.com/${account.username}` : ''));
+              setShowEditLinkModal(true);
+            }}
             className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all"
           >
             Update Link
