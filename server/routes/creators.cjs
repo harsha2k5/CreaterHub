@@ -61,9 +61,16 @@ router.get('/', async (req, res) => {
             JOIN users u ON c.user_id = u.id
             LEFT JOIN instagram_accounts ia ON c.id = ia.creator_id AND ia.is_connected = 1
             LEFT JOIN (
-                SELECT instagram_account_id, followers_count, follows_count, media_count, engagement_rate
-                FROM instagram_metrics
-                ORDER BY recorded_at DESC
+                SELECT m1.instagram_account_id, m1.followers_count,
+                       COALESCE(m1.following_count, m1.follows_count) as follows_count,
+                       m1.media_count, m1.engagement_rate
+                FROM instagram_metrics m1
+                WHERE m1.rowid = (
+                    SELECT m2.rowid FROM instagram_metrics m2
+                    WHERE m2.instagram_account_id = m1.instagram_account_id
+                    ORDER BY datetime(m2.recorded_at) DESC, m2.rowid DESC
+                    LIMIT 1
+                )
             ) im ON ia.id = im.instagram_account_id
             LEFT JOIN ai_creator_analyses ai ON c.id = ai.creator_id
             WHERE u.is_active = 1
@@ -125,10 +132,16 @@ router.get('/:id', async (req, res) => {
             JOIN users u ON c.user_id = u.id
             LEFT JOIN instagram_accounts ia ON c.id = ia.creator_id AND ia.is_connected = 1
             LEFT JOIN (
-                SELECT instagram_account_id, followers_count, follows_count, media_count, engagement_rate
-                FROM instagram_metrics
-                ORDER BY recorded_at DESC
-                LIMIT 1
+                SELECT m1.instagram_account_id, m1.followers_count,
+                       COALESCE(m1.following_count, m1.follows_count) as follows_count,
+                       m1.media_count, m1.engagement_rate
+                FROM instagram_metrics m1
+                WHERE m1.rowid = (
+                    SELECT m2.rowid FROM instagram_metrics m2
+                    WHERE m2.instagram_account_id = m1.instagram_account_id
+                    ORDER BY datetime(m2.recorded_at) DESC, m2.rowid DESC
+                    LIMIT 1
+                )
             ) im ON ia.id = im.instagram_account_id
             LEFT JOIN ai_creator_analyses ai ON c.id = ai.creator_id
             WHERE c.id = ? AND u.is_active = 1
