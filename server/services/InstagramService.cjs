@@ -339,14 +339,14 @@ class InstagramService {
             throw new Error('No active Instagram account connected for this creator.');
         }
 
-        // Handle Development Mock Account refresh
-        if (account.account_type === 'MOCK_DEVELOPMENT' || account.account_type === 'SANDBOX_DEV_MODE') {
-            run('UPDATE instagram_accounts SET last_synced_at = CURRENT_TIMESTAMP WHERE id = ?', [account.id]);
+        // Handle Direct Link and Development Mock Account refresh
+        if (account.account_type === 'DIRECT_LINK' || account.account_type === 'MOCK_DEVELOPMENT' || account.account_type === 'SANDBOX_DEV_MODE') {
+            run("UPDATE instagram_accounts SET connection_status = 'CONNECTED', last_synced_at = CURRENT_TIMESTAMP WHERE id = ?", [account.id]);
             return {
                 success: true,
-                is_mock: true,
-                data_source: 'DEMO DATA',
-                message: 'Development account data refreshed.',
+                is_direct_link: account.account_type === 'DIRECT_LINK',
+                is_mock: account.account_type !== 'DIRECT_LINK',
+                message: 'Instagram profile metrics refreshed.',
                 last_synced_at: new Date().toISOString()
             };
         }

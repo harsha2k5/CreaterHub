@@ -113,7 +113,7 @@ export const api = {
     request('/instagram/callback', { method: 'POST', body: JSON.stringify({ code, state }) }),
   syncInstagramAnalytics: () => request('/instagram/sync', { method: 'POST' }),
   disconnectInstagram: () => request('/instagram/disconnect', { method: 'POST' }),
-  getInstagramAnalytics: () => request('/instagram/metrics'),
+  getInstagramAnalytics: () => request('/instagram/status'),
   getInstagramConfigStatus: () => request('/instagram/config-status'),
   connectInstagramSandbox: (payload?: any) => request('/instagram/sandbox-connect', { method: 'POST', body: JSON.stringify(payload || {}) }),
   connectInstagramByLink: (payload: { profileUrl: string; followersCount?: number; engagementRate?: number; bio?: string }) =>

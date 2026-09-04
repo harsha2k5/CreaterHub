@@ -57,17 +57,26 @@ export const InstagramIntegrationView: React.FC<InstagramIntegrationViewProps> =
   const [customEngagement, setCustomEngagement] = useState('4.35');
   const [customBio, setCustomBio] = useState('');
 
-  const isConnected = Boolean(data && data.is_connected);
-  const isMock = Boolean(data && (data.is_mock || data.mock_badge === 'DEMO DATA'));
-  const connectionStatus = data?.connection_status || (isConnected ? 'CONNECTED' : 'NOT_CONNECTED');
+  const [localData, setLocalData] = useState<any>(data);
+
+  React.useEffect(() => {
+    if (data) {
+      setLocalData(data);
+    }
+  }, [data]);
+
+  const effectiveData = localData || data;
+  const isConnected = Boolean(effectiveData && effectiveData.is_connected);
+  const isMock = Boolean(effectiveData && (effectiveData.is_mock || effectiveData.mock_badge === 'DEMO DATA'));
+  const connectionStatus = effectiveData?.connection_status || (isConnected ? 'CONNECTED' : 'NOT_CONNECTED');
   const isTokenExpired = connectionStatus === 'TOKEN_EXPIRED' || connectionStatus === 'REAUTH_REQUIRED';
 
-  const account = data?.account || {};
-  const metrics = data?.metrics || {};
-  const trends = data?.trends || {};
-  const snapshots = data?.snapshots || [];
-  const media = data?.media || [];
-  const hasChartData = Boolean(data?.has_sufficient_chart_data || (snapshots.length >= 2));
+  const account = effectiveData?.account || {};
+  const metrics = effectiveData?.metrics || {};
+  const trends = effectiveData?.trends || {};
+  const snapshots = effectiveData?.snapshots || [];
+  const media = effectiveData?.media || [];
+  const hasChartData = Boolean(effectiveData?.has_sufficient_chart_data || (snapshots.length >= 2));
 
   // Extract preview username from input
   const getPreviewHandle = (input: string) => {
@@ -104,8 +113,19 @@ export const InstagramIntegrationView: React.FC<InstagramIntegrationViewProps> =
       });
 
       if (res.success) {
+        if (res.is_connected || res.account) {
+          setLocalData({
+            ...res,
+            is_connected: true,
+            connection_status: 'CONNECTED'
+          });
+        }
         setProfileLink('');
         setShowEditLinkModal(false);
+        setSyncFeedback({
+          message: res.message || 'Instagram account connected successfully!',
+          isError: false
+        });
         onRefresh();
       } else {
         setConnectError(res.error || 'Failed to connect Instagram account.');
@@ -160,6 +180,14 @@ export const InstagramIntegrationView: React.FC<InstagramIntegrationViewProps> =
     setDisconnecting(true);
     try {
       await api.disconnectInstagram();
+      setLocalData({
+        is_connected: false,
+        connection_status: 'NOT_CONNECTED',
+        account: null,
+        metrics: null,
+        media: [],
+        snapshots: []
+      });
       setShowDisconnectModal(false);
       onRefresh();
     } catch (err: any) {

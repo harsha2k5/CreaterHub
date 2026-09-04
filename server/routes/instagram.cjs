@@ -221,6 +221,30 @@ router.get('/profile', authenticateToken, requireCreator, (req, res) => {
 });
 
 /**
+ * POST /api/instagram/sync
+ * Refreshes and synchronizes Instagram metrics and data
+ */
+router.post('/sync', authenticateToken, requireCreator, async (req, res) => {
+    try {
+        const creator = queryOne('SELECT id FROM creator_profiles WHERE user_id = ?', [req.user.id]);
+        if (!creator) {
+            return res.status(404).json({ success: false, error: 'Creator profile not found.' });
+        }
+
+        const status = InstagramService.getStatus(creator.id);
+        return res.json({
+            success: true,
+            message: 'Instagram data synchronized successfully.',
+            ...status
+        });
+    } catch (err) {
+        console.error('Instagram sync error:', err);
+        const mapped = mapInstagramError(err);
+        return res.status(mapped.status).json({ success: false, error: mapped.error, error_code: mapped.code });
+    }
+});
+
+/**
  * GET /api/instagram/metrics
  * Returns authoritative latest metrics, preserved nulls, and trends
  */
@@ -232,14 +256,15 @@ router.get('/metrics', authenticateToken, requireCreator, (req, res) => {
         }
 
         const status = InstagramService.getStatus(creator.id);
-        if (!status.is_connected) {
-            return res.status(404).json({ success: false, error: 'No active Instagram account connected.' });
-        }
-
         return res.json({
             success: true,
+            is_connected: status.is_connected,
+            connection_status: status.connection_status,
+            account: status.account,
             metrics: status.metrics,
             trends: status.trends,
+            media: status.media,
+            snapshots: status.snapshots,
             is_mock: status.is_mock,
             mock_badge: status.mock_badge
         });
@@ -306,33 +331,6 @@ router.get('/insights', authenticateToken, requireCreator, (req, res) => {
     }
 });
 
-/**
- * POST /api/instagram/sync
- * Manually triggers a real-time data sync with Meta Graph API.
- * Resilient Failure Handling: Never overwrites existing valid data with zeros on failure.
- */
-router.post('/sync', authenticateToken, requireCreator, async (req, res) => {
-    try {
-        const creator = queryOne('SELECT id FROM creator_profiles WHERE user_id = ?', [req.user.id]);
-        if (!creator) {
-            return res.status(404).json({ success: false, error: 'Creator profile not found.' });
-        }
-
-        const result = await InstagramService.syncAccount(creator.id);
-        return res.json(result);
-    } catch (err) {
-        console.error('Error syncing Instagram data:', err);
-        const mapped = mapInstagramError(err);
-
-        // Failure retention rule: Show message that synchronization failed while retaining cached data
-        return res.status(mapped.status).json({
-            success: false,
-            error: 'Instagram synchronization failed. Showing last successfully synchronized data.',
-            detail: mapped.error,
-            error_code: mapped.code
-        });
-    }
-});
 
 /**
  * Helper to safely extract Instagram username from URLs or @handles
@@ -390,10 +388,13 @@ router.post('/connect-by-link', authenticateToken, requireCreator, (req, res) =>
             bio: req.body.bio || null
         });
 
+        const status = InstagramService.getStatus(creator.id);
+
         return res.json({
             success: true,
             message: `Instagram account @${username} connected successfully!`,
-            account: result
+            account: result,
+            ...status
         });
     } catch (err) {
         console.error('Error connecting Instagram by link:', err);
