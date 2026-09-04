@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.cjs",
-    "test": "node server/tests/test_auth_and_roles.cjs && node server/tests/test_campaign_matching.cjs && node server/tests/test_instagram_integrity.cjs && node server/tests/test_collaboration_flow.cjs"
+    "test": "node server/tests/test_auth_and_roles.cjs && node server/tests/test_campaign_matching.cjs && node server/tests/test_instagram_integrity.cjs && node server/tests/test_collaboration_flow.cjs && node server/tests/test_real_instagram_integration.cjs"
   },
   "keywords": [],
   "author": "",

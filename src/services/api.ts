@@ -103,12 +103,17 @@ export const api = {
   updateBrandProfile: (payload: any) => request('/brands/profile', { method: 'PUT', body: JSON.stringify(payload) }),
 
   // Official Instagram Graph API (Zero Fake Data)
-  getInstagramConnectUrl: () => request('/instagram/connect-url'),
+  getInstagramConnectUrl: () => request('/instagram/connect'),
   getInstagramStatus: () => request('/instagram/status'),
-  handleInstagramCallback: (code: string) => request('/instagram/callback', { method: 'POST', body: JSON.stringify({ code }) }),
+  getInstagramProfile: () => request('/instagram/profile'),
+  getInstagramMetrics: () => request('/instagram/metrics'),
+  getInstagramMedia: (limit?: number) => request(`/instagram/media${limit ? `?limit=${limit}` : ''}`),
+  getInstagramInsights: () => request('/instagram/insights'),
+  handleInstagramCallback: (code: string, state?: string) =>
+    request('/instagram/callback', { method: 'POST', body: JSON.stringify({ code, state }) }),
   syncInstagramAnalytics: () => request('/instagram/sync', { method: 'POST' }),
   disconnectInstagram: () => request('/instagram/disconnect', { method: 'POST' }),
-  getInstagramAnalytics: () => request('/instagram/analytics'),
+  getInstagramAnalytics: () => request('/instagram/metrics'),
   getInstagramConfigStatus: () => request('/instagram/config-status'),
   connectInstagramSandbox: (payload?: any) => request('/instagram/sandbox-connect', { method: 'POST', body: JSON.stringify(payload || {}) }),
 

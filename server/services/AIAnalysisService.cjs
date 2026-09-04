@@ -27,7 +27,8 @@ class AIAnalysisService {
         }
 
         const latestMetric = queryOne(
-            `SELECT followers_count, follows_count, media_count, engagement_rate, source
+            `SELECT followers_count, COALESCE(following_count, follows_count) as following_count,
+                    media_count, reach, impressions, engagement_rate, source, data_source
              FROM instagram_metrics
              WHERE instagram_account_id = ?
              ORDER BY recorded_at DESC LIMIT 1`,
@@ -42,13 +43,11 @@ class AIAnalysisService {
             [account.id]
         );
 
-        if (!latestMetric || (latestMetric.followers_count === 0 && media.length === 0)) {
-            throw new Error('Insufficient synchronized Instagram metrics available. Please wait for initial synchronization to complete.');
+        if (!latestMetric && media.length === 0) {
+            throw new Error('Insufficient synchronized Instagram data available. Please trigger a data synchronization first.');
         }
 
         const categories = JSON.parse(creator.categories_json || '[]');
-        const totalFollowers = latestMetric.followers_count;
-        const engagementRate = latestMetric.engagement_rate;
 
         let analysisResult = null;
 
@@ -136,12 +135,18 @@ class AIAnalysisService {
      * Compute Deterministic Grounded Analysis from Real Metrics
      */
     static computeAnalyticalModel({ creator, account, metrics, media, categories }) {
-        const followers = metrics.followers_count || 0;
-        const engagement = metrics.engagement_rate || 0.0;
-        const mediaCount = metrics.media_count || media.length || 0;
+        const hasFollowers = metrics.followers_count !== null && metrics.followers_count !== undefined;
+        const followers = hasFollowers ? Number(metrics.followers_count) : null;
+        const hasEngagement = metrics.engagement_rate !== null && metrics.engagement_rate !== undefined;
+        const engagement = hasEngagement ? Number(metrics.engagement_rate) : null;
+        const mediaCount = (metrics.media_count !== null && metrics.media_count !== undefined) 
+            ? Number(metrics.media_count) 
+            : (media ? media.length : 0);
 
         // Calibrate Engagement Score (Benchmark: 2-4% is good, 4%+ is exceptional)
-        const engagementScore = Math.min(96, Math.max(45, Math.round(engagement > 0 ? (engagement * 16) + 30 : 60)));
+        const engagementScore = engagement !== null
+            ? Math.min(96, Math.max(45, Math.round((engagement * 16) + 30)))
+            : 70; // Neutral baseline when private/uncalculated
 
         // Calibrate Content Consistency Score based on media count
         const consistencyScore = Math.min(94, Math.max(50, Math.round(mediaCount > 20 ? 82 : (mediaCount * 3) + 40)));
@@ -149,12 +154,15 @@ class AIAnalysisService {
         // Content Quality Score based on engagement and format variety
         const contentScore = Math.min(95, Math.max(55, Math.round((engagementScore * 0.6) + (consistencyScore * 0.4))));
 
-        // Audience Score based on real follower tier
-        let audienceScore = 65;
-        if (followers >= 50000) audienceScore = 92;
-        else if (followers >= 10000) audienceScore = 86;
-        else if (followers >= 2500) audienceScore = 78;
-        else if (followers >= 500) audienceScore = 70;
+        // Audience Score based on verified follower tier (or neutral baseline if private/null)
+        let audienceScore = 70;
+        if (followers !== null) {
+            if (followers >= 50000) audienceScore = 92;
+            else if (followers >= 10000) audienceScore = 86;
+            else if (followers >= 2500) audienceScore = 78;
+            else if (followers >= 500) audienceScore = 70;
+            else audienceScore = 62;
+        }
 
         // Brand Suitability Score based on niche definition and profile completion
         const brandSuitabilityScore = Math.min(95, Math.max(60, Math.round(
@@ -173,13 +181,13 @@ class AIAnalysisService {
         );
 
         const strengths = [];
-        if (engagement >= 3.0) strengths.push(`Above-average community engagement rate (${engagement}%)`);
-        if (followers >= 5000) strengths.push(`Established local audience reach (${followers.toLocaleString()} verified followers)`);
+        if (engagement !== null && engagement >= 3.0) strengths.push(`Above-average community engagement rate (${engagement}%)`);
+        if (followers !== null && followers >= 5000) strengths.push(`Established local audience reach (${followers.toLocaleString()} verified followers)`);
         if (categories.length > 0) strengths.push(`Clear niche focus in ${categories.join(' & ')}`);
         strengths.push('Responsive content style optimized for local brand storytelling');
 
         const weaknesses = [];
-        if (engagement < 2.0) weaknesses.push('Community interaction can be improved with stronger caption calls-to-action');
+        if (engagement !== null && engagement < 2.0) weaknesses.push('Community interaction can be improved with stronger caption calls-to-action');
         if (mediaCount < 10) weaknesses.push('Relatively low catalog of synchronized media posts');
         if (!creator.bio || creator.bio.length < 30) weaknesses.push('Profile bio could highlight local collaboration credentials more prominently');
 
@@ -194,7 +202,9 @@ class AIAnalysisService {
             { category: 'Static Carousels', performance: 'Medium', insight: 'Carousels drive bookmark saves and detailed reviews.' }
         ];
 
-        const summary = `${creator.full_name} demonstrates an active local presence with ${followers.toLocaleString()} verified Instagram followers and a ${engagement}% engagement rate. Profile alignment is well-suited for ${categories.join(', ') || 'lifestyle and neighborhood'} brand activations.`;
+        const audienceSnippet = followers !== null ? `${followers.toLocaleString()} verified Instagram followers` : 'active Instagram presence';
+        const engagementSnippet = engagement !== null ? ` and a ${engagement}% engagement rate` : '';
+        const summary = `${creator.full_name} demonstrates an ${audienceSnippet}${engagementSnippet}. Profile alignment is well-suited for ${categories.join(', ') || 'lifestyle and neighborhood'} brand activations.`;
 
         return {
             overallScore,
@@ -215,6 +225,19 @@ class AIAnalysisService {
      * Invoke Gemini API for Advanced Natural Language Evaluation
      */
     static async callGeminiAPI({ creator, account, metrics, media, categories }) {
+        const followersDisplay = metrics.followers_count !== null && metrics.followers_count !== undefined
+            ? metrics.followers_count.toLocaleString()
+            : 'Not available (unshared or private metric)';
+        const followingDisplay = metrics.following_count !== null && metrics.following_count !== undefined
+            ? metrics.following_count.toLocaleString()
+            : 'Not available';
+        const mediaDisplay = metrics.media_count !== null && metrics.media_count !== undefined
+            ? metrics.media_count
+            : 'Not available';
+        const engagementDisplay = metrics.engagement_rate !== null && metrics.engagement_rate !== undefined
+            ? `${metrics.engagement_rate}%`
+            : 'Not available';
+
         const prompt = `
 You are an expert influencer marketing AI analyst.
 Analyze this REAL synchronized Instagram creator data and generate an objective, grounded analysis adhering strictly to this JSON schema:
@@ -238,15 +261,18 @@ CREATOR PROFILE:
 - Username: @${account.username}
 - Categories: ${categories.join(', ')}
 - City: ${creator.city}
-- Followers: ${metrics.followers_count}
-- Following: ${metrics.follows_count}
-- Posts Count: ${metrics.media_count}
-- Engagement Rate: ${metrics.engagement_rate}%
+- Followers: ${followersDisplay}
+- Following: ${followingDisplay}
+- Posts Count: ${mediaDisplay}
+- Engagement Rate: ${engagementDisplay}
 
 RECENT MEDIA SUMMARY (${media.length} items):
-${media.slice(0, 5).map(m => `- Type: ${m.media_type}, Likes: ${m.like_count}, Comments: ${m.comments_count}, Caption snippet: "${(m.caption || '').substring(0, 60)}"`).join('\n')}
+${media.slice(0, 5).map(m => `- Type: ${m.media_type}, Likes: ${m.like_count ?? 'N/A'}, Comments: ${m.comments_count ?? 'N/A'}, Caption snippet: "${(m.caption || '').substring(0, 60)}"`).join('\n')}
 
-DO NOT invent fake stats. Base all feedback strictly on the provided numbers. Output pure JSON only.
+RULES:
+- DO NOT invent fake stats or guess follower numbers if marked 'Not available'.
+- Base all feedback strictly on the provided real data.
+- Output pure JSON only.
 `;
 
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;

@@ -41,6 +41,7 @@ export const CreatorDashboard: React.FC = () => {
   const [applications, setApplications] = useState<any[]>([]);
   const [collaborations, setCollaborations] = useState<any[]>([]);
   const [earnings, setEarnings] = useState<any>(null);
+  const [oauthFeedback, setOauthFeedback] = useState<{ message: string; isError?: boolean } | null>(null);
 
   // Deliverables submission state
   const [selectedCollab, setSelectedCollab] = useState<any>(null);
@@ -96,6 +97,49 @@ export const CreatorDashboard: React.FC = () => {
   useEffect(() => {
     loadAllData();
   }, [user]);
+
+  // Handle Meta OAuth redirect parameters (?code=...&state=... or ?ig_code=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code') || params.get('ig_code');
+    const state = params.get('state') || params.get('ig_state');
+    const err = params.get('error') || params.get('ig_error');
+    const errDesc = params.get('error_description');
+
+    if (err || errDesc) {
+      setOauthFeedback({
+        message: errDesc || "Your Instagram account cannot currently be connected through Meta's Instagram API. Please make sure you are using an eligible professional Instagram account.",
+        isError: true
+      });
+      setActiveTab('instagram');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (code) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setActiveTab('instagram');
+      setSyncingInstagram(true);
+      api.handleInstagramCallback(code, state || undefined)
+        .then(res => {
+          if (res.success) {
+            setOauthFeedback({ message: 'Instagram account connected and synchronized successfully via Meta Graph API!' });
+            loadAllData();
+          } else {
+            setOauthFeedback({
+              message: res.error || "Your Instagram account cannot currently be connected through Meta's Instagram API. Please make sure you are using an eligible professional Instagram account.",
+              isError: true
+            });
+          }
+        })
+        .catch(error => {
+          setOauthFeedback({
+            message: error.message || "Your Instagram account cannot currently be connected through Meta's Instagram API. Please make sure you are using an eligible professional Instagram account.",
+            isError: true
+          });
+        })
+        .finally(() => {
+          setSyncingInstagram(false);
+        });
+    }
+  }, []);
 
   const handleRefreshInstagram = async () => {
     setSyncingInstagram(true);
@@ -286,6 +330,25 @@ export const CreatorDashboard: React.FC = () => {
 
       {/* Main Content Pane */}
       <main className="flex-1 p-6 sm:p-10 overflow-y-auto max-w-6xl mx-auto w-full">
+        {/* OAuth Return Notification */}
+        {oauthFeedback && (
+          <div className={`mb-6 p-4 rounded-2xl border text-xs flex items-center justify-between shadow-lg ${
+            oauthFeedback.isError
+              ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+              : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+          }`}>
+            <div className="flex items-center gap-3">
+              <span className="font-bold">{oauthFeedback.message}</span>
+            </div>
+            <button
+              onClick={() => setOauthFeedback(null)}
+              className="px-2 py-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Top Profile Header (Section 9) */}
         <div className="bg-slate-900/60 p-6 rounded-3xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 shadow-xl">
           <div className="flex items-center gap-4">

@@ -1,285 +1,506 @@
 /**
- * CreaterHub - Official Meta / Instagram Graph API Service
+ * CreaterHub - Production Meta / Instagram Integration Service
  * 
- * Strict "Real Data First. No Fake Data" implementation.
- * - Handles official OAuth authorization code exchange
- * - Server-side token storage with 60-day long-lived token exchange
- * - Fetches live profile, official metrics, and published media
- * - Structured audit logging (never logs tokens/secrets)
- * - Zero fallback to fake benchmark data
+ * Strict "Real Data First. Single Source of Truth" Architecture:
+ * - Meta Graph API v19.0 with Instagram Login
+ * - Cryptographically random state validation against CSRF
+ * - Server-side AES-256 token encryption (never exposed to client)
+ * - Account identity permanently bound to instagram_user_id
+ * - Preserves null values (never defaults missing metrics to 0)
+ * - Structured audit logging in instagram_sync_logs
+ * - Zero scraping, zero password storage, zero fake metrics
  */
 
+const crypto = require('crypto');
 const { query, queryOne, run, transaction } = require('../db/database.cjs');
+const TokenEncryptionService = require('./TokenEncryptionService.cjs');
+const InstagramValidationService = require('./InstagramValidationService.cjs');
+const InstagramMediaSyncService = require('./InstagramMediaSyncService.cjs');
+const InstagramInsightsService = require('./InstagramInsightsService.cjs');
+const MockInstagramService = require('./MockInstagramService.cjs');
 
 const META_APP_ID = process.env.META_APP_ID || '';
 const META_APP_SECRET = process.env.META_APP_SECRET || '';
 const META_REDIRECT_URI = process.env.META_REDIRECT_URI || 'http://localhost:5173/creator/dashboard';
+const USE_INSTAGRAM_MOCK = process.env.USE_INSTAGRAM_MOCK === 'true';
 
 class InstagramService {
     /**
-     * Check if Meta developer app credentials are configured
+     * Check if Meta Developer App credentials are fully configured
      */
     static isConfigured() {
         return Boolean(META_APP_ID && META_APP_SECRET);
     }
 
     /**
-     * Generate the official Meta OAuth Authorization URL
+     * Check if mock mode is enabled in development
+     */
+    static isMockEnabled() {
+        return process.env.NODE_ENV !== 'production' && USE_INSTAGRAM_MOCK;
+    }
+
+    /**
+     * Generate secure OAuth authorization URL with cryptographic CSRF state
      */
     static getAuthorizationUrl(creatorId) {
+        if (!creatorId) throw new Error('creatorId is required to initiate Instagram OAuth.');
+
         if (!this.isConfigured()) {
             return {
                 configured: false,
+                is_mock_available: this.isMockEnabled(),
                 url: null,
                 message: 'META_APP_ID and META_APP_SECRET are not configured in .env. Real Meta OAuth requires a registered Meta Developer App.'
             };
         }
 
-        const scope = 'instagram_basic,instagram_manage_insights,pages_read_engagement,pages_show_list';
-        const state = Buffer.from(JSON.stringify({ creatorId, timestamp: Date.now() })).toString('base64');
-        const url = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(META_REDIRECT_URI)}&scope=${scope}&state=${state}&response_type=code`;
+        // Generate cryptographically random 32-byte state token
+        const stateToken = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minute expiration
+
+        // Store state against creator in database
+        const stateId = `st_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+        run(
+            `INSERT INTO oauth_states (id, creator_id, state_token, expires_at)
+             VALUES (?, ?, ?, ?)`,
+            [stateId, creatorId, stateToken, expiresAt]
+        );
+
+        const scope = 'instagram_basic,instagram_manage_insights,pages_show_list,pages_read_engagement';
+        const url = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${encodeURIComponent(META_APP_ID)}&redirect_uri=${encodeURIComponent(META_REDIRECT_URI)}&scope=${encodeURIComponent(scope)}&state=${encodeURIComponent(stateToken)}&response_type=code`;
 
         return {
             configured: true,
+            is_mock_available: false,
             url,
-            message: 'Official Meta OAuth URL generated.'
+            stateToken,
+            message: 'Official Meta OAuth authorization URL generated.'
         };
     }
 
     /**
-     * Exchange OAuth Code for a Long-Lived User Access Token
+     * Validate and consume OAuth state (one-time use, prevents CSRF & replay)
      */
-    static async exchangeCodeForToken(code) {
-        if (!this.isConfigured()) {
-            throw new Error('Meta App credentials (META_APP_ID, META_APP_SECRET) are missing.');
+    static validateOAuthState(creatorId, stateToken) {
+        if (!stateToken || typeof stateToken !== 'string') {
+            throw new Error('Invalid OAuth state: state parameter is missing.');
         }
 
-        console.log('[Instagram Sync Started] Exchanging OAuth authorization code...');
+        const record = queryOne(
+            `SELECT id, expires_at FROM oauth_states
+             WHERE creator_id = ? AND state_token = ?`,
+            [creatorId, stateToken]
+        );
 
-        // Step 1: Exchange code for short-lived access token
-        const tokenExchangeUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(META_REDIRECT_URI)}&client_secret=${META_APP_SECRET}&code=${code}`;
-        const tokenRes = await fetch(tokenExchangeUrl);
+        if (!record) {
+            throw new Error('Invalid OAuth state: CSRF verification failed or state does not match.');
+        }
+
+        // Check expiration
+        if (new Date(record.expires_at) < new Date()) {
+            run('DELETE FROM oauth_states WHERE id = ?', [record.id]);
+            throw new Error('OAuth authorization state expired. Please restart the connection flow.');
+        }
+
+        // Consume state (delete so it cannot be reused)
+        run('DELETE FROM oauth_states WHERE id = ?', [record.id]);
+        return true;
+    }
+
+    /**
+     * Exchange OAuth Code for a 60-day Long-Lived Token
+     */
+    static async exchangeCodeForLongLivedToken(code) {
+        if (!this.isConfigured()) {
+            throw new Error('Meta developer app credentials (META_APP_ID, META_APP_SECRET) are missing.');
+        }
+
+        console.log('[Instagram OAuth Started] Exchanging authorization code...');
+
+        // Step 1: Exchange code for short-lived token
+        const exchangeUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${encodeURIComponent(META_APP_ID)}&redirect_uri=${encodeURIComponent(META_REDIRECT_URI)}&client_secret=${encodeURIComponent(META_APP_SECRET)}&code=${encodeURIComponent(code)}`;
+        const tokenRes = await fetch(exchangeUrl);
         const tokenData = await tokenRes.json();
 
         if (!tokenRes.ok || tokenData.error) {
-            const errMsg = tokenData.error?.message || 'Failed to exchange authorization code with Meta Graph API.';
-            console.error('[Instagram API Error] Token exchange failed:', errMsg);
-            throw new Error(errMsg);
+            const msg = tokenData.error?.message || 'Failed to exchange authorization code with Meta Graph API.';
+            console.error('[Instagram API Error] Token exchange failed:', msg);
+            throw new Error(msg);
         }
 
         const shortLivedToken = tokenData.access_token;
 
-        // Step 2: Exchange for a 60-day long-lived access token
-        const longLivedUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${META_APP_ID}&client_secret=${META_APP_SECRET}&fb_exchange_token=${shortLivedToken}`;
-        let longLivedToken = shortLivedToken;
-        let expiresInSeconds = tokenData.expires_in || (60 * 86400);
+        // Step 2: Exchange for 60-day long-lived token
+        const longLivedUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${encodeURIComponent(META_APP_ID)}&client_secret=${encodeURIComponent(META_APP_SECRET)}&fb_exchange_token=${encodeURIComponent(shortLivedToken)}`;
+        const longRes = await fetch(longLivedUrl);
+        const longData = await longRes.json();
 
-        try {
-            const longRes = await fetch(longLivedUrl);
-            const longData = await longRes.json();
-            if (longRes.ok && longData.access_token) {
-                longLivedToken = longData.access_token;
-                expiresInSeconds = longData.expires_in || (60 * 86400);
-            }
-        } catch (e) {
-            console.warn('[Instagram Warning] Long-lived token exchange warning, using short-lived token:', e.message);
+        if (!longRes.ok || longData.error) {
+            console.warn('[Instagram API Warning] Long-lived exchange warning, using initial token:', longData.error?.message);
+            return {
+                accessToken: shortLivedToken,
+                expiresIn: tokenData.expires_in || 5184000 // default ~60 days in seconds
+            };
         }
 
-        const expiresAt = new Date(Date.now() + (expiresInSeconds * 1000)).toISOString();
-        return { token: longLivedToken, expiresAt };
+        return {
+            accessToken: longData.access_token,
+            expiresIn: longData.expires_in || 5184000
+        };
     }
 
     /**
-     * Locate Connected Instagram Business/Creator Account via Facebook Page
+     * Discover linked Instagram Professional Account via Meta Pages endpoint
      */
-    static async findConnectedInstagramAccount(accessToken) {
-        const accountsUrl = `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,instagram_business_account{id,username,name,profile_picture_url,followers_count,follows_count,media_count,biography}&access_token=${accessToken}`;
-        const res = await fetch(accountsUrl);
+    static async discoverInstagramAccount(accessToken) {
+        const fields = 'id,name,instagram_business_account{id,username,name,biography,profile_picture_url,website,followers_count,follows_count,media_count}';
+        const url = `https://graph.facebook.com/v19.0/me/accounts?fields=${fields}&access_token=${encodeURIComponent(accessToken)}`;
+
+        const res = await fetch(url);
         const data = await res.json();
 
         if (!res.ok || data.error) {
-            throw new Error(data.error?.message || 'Failed to fetch Facebook pages and linked Instagram accounts.');
+            throw new Error(data.error?.message || 'Failed to inspect linked Facebook Pages for Instagram accounts.');
         }
 
-        const pageWithIg = data.data?.find(p => p.instagram_business_account);
-        if (!pageWithIg || !pageWithIg.instagram_business_account) {
-            throw new Error('No Instagram Professional/Business account is linked to your Facebook pages. Please ensure your Instagram is connected to a Facebook page.');
-        }
-
-        return pageWithIg.instagram_business_account;
-    }
-
-    /**
-     * Fetch Live Media Items from Instagram
-     */
-    static async fetchMediaItems(accessToken, igUserId) {
-        try {
-            const mediaUrl = `https://graph.facebook.com/v19.0/${igUserId}/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&limit=15&access_token=${accessToken}`;
-            const res = await fetch(mediaUrl);
-            if (!res.ok) return [];
-            const data = await res.json();
-            return data.data || [];
-        } catch (err) {
-            console.warn('[Instagram Warning] Failed to fetch media items:', err.message);
-            return [];
-        }
-    }
-
-    /**
-     * Connect and Sync an Instagram Account for a Creator
-     */
-    static async connectAccount({ creatorId, userId, code }) {
-        const startTime = Date.now();
-        console.log(`[Instagram Sync Started] User ID: ${userId}, Creator ID: ${creatorId}`);
-
-        try {
-            const { token, expiresAt } = await this.exchangeCodeForToken(code);
-            const igAccount = await this.findConnectedInstagramAccount(token);
-
-            const igUserId = igAccount.id;
-            const username = igAccount.username || 'instagram_user';
-            const fullName = igAccount.name || username;
-            const profilePic = igAccount.profile_picture_url || '';
-            const bio = igAccount.biography || '';
-            const followers = Number(igAccount.followers_count) || 0;
-            const follows = Number(igAccount.follows_count) || 0;
-            const mediaCount = Number(igAccount.media_count) || 0;
-
-            // Fetch live recent media
-            const mediaList = await this.fetchMediaItems(token, igUserId);
-
-            // Compute engagement rate purely from real media
-            let totalLikes = 0;
-            let totalComments = 0;
-            for (const m of mediaList) {
-                totalLikes += Number(m.like_count) || 0;
-                totalComments += Number(m.comments_count) || 0;
+        if (Array.isArray(data.data)) {
+            for (const page of data.data) {
+                if (page.instagram_business_account && page.instagram_business_account.id) {
+                    return InstagramValidationService.validateProfileResponse(page.instagram_business_account);
+                }
             }
-            const measuredPosts = mediaList.length;
-            const realEngagementRate = (measuredPosts > 0 && followers > 0)
-                ? Number((((totalLikes + totalComments) / (measuredPosts * followers)) * 100).toFixed(2))
-                : 0.0;
+        }
 
-            const accountRecordId = `ig_${creatorId}`;
+        // If no linked professional business account is found
+        throw new Error("Your Instagram account cannot currently be connected through Meta's Instagram API. Please make sure you are using an eligible professional Instagram account.");
+    }
 
-            transaction(() => {
-                // Upsert instagram_accounts record
-                const existing = queryOne('SELECT id FROM instagram_accounts WHERE creator_id = ?', [creatorId]);
-                if (existing) {
-                    run(
-                        `UPDATE instagram_accounts
-                         SET instagram_user_id = ?, username = ?, full_name = ?, profile_picture_url = ?,
-                             bio = ?, access_token = ?, token_expires_at = ?, connection_status = 'CONNECTED',
-                             is_connected = 1, last_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                         WHERE creator_id = ?`,
-                        [igUserId, username, fullName, profilePic, bio, token, expiresAt, creatorId]
-                    );
-                } else {
-                    run(
-                        `INSERT INTO instagram_accounts (
-                            id, creator_id, user_id, instagram_user_id, username,
-                            full_name, profile_picture_url, bio, access_token,
-                            token_expires_at, connection_status, is_connected, last_synced_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CONNECTED', 1, CURRENT_TIMESTAMP)`,
-                        [accountRecordId, creatorId, userId, igUserId, username, fullName, profilePic, bio, token, expiresAt]
-                    );
-                }
+    /**
+     * Connect account via official Meta OAuth flow
+     */
+    static async connectAccount({ creatorId, userId, code, stateToken }) {
+        if (!creatorId || !userId || !code) {
+            throw new Error('creatorId, userId, and authorization code are required.');
+        }
 
-                // Insert snapshot into instagram_metrics
-                const metricId = `met_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        // Validate state token if supplied
+        if (stateToken) {
+            this.validateOAuthState(creatorId, stateToken);
+        }
+
+        const startTime = Date.now();
+
+        // 1. Exchange code for long-lived access token
+        const { accessToken, expiresIn } = await this.exchangeCodeForLongLivedToken(code);
+        const tokenExpiresAt = new Date(Date.now() + (expiresIn * 1000)).toISOString();
+        const encryptedToken = TokenEncryptionService.encrypt(accessToken);
+
+        // 2. Discover Instagram Professional account
+        const profile = await this.discoverInstagramAccount(accessToken);
+
+        // 3. Prevent duplicate account takeover (1 IG Account belongs to 1 Creator)
+        const duplicateClaim = queryOne(
+            `SELECT creator_id FROM instagram_accounts
+             WHERE instagram_user_id = ? AND creator_id != ? AND is_connected = 1`,
+            [profile.instagramUserId, creatorId]
+        );
+        if (duplicateClaim) {
+            throw new Error('This Instagram account is already connected to another CreaterHub profile.');
+        }
+
+        let accountRecordId = null;
+
+        transaction(() => {
+            const existing = queryOne('SELECT id FROM instagram_accounts WHERE creator_id = ?', [creatorId]);
+
+            if (existing) {
+                accountRecordId = existing.id;
                 run(
-                    `INSERT INTO instagram_metrics (
-                        id, instagram_account_id, creator_id, followers_count,
-                        follows_count, media_count, engagement_rate, source
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'LIVE_API')`,
-                    [metricId, accountRecordId, creatorId, followers, follows, mediaCount, realEngagementRate]
+                    `UPDATE instagram_accounts
+                     SET instagram_user_id = ?, instagram_username = ?, username = ?,
+                         full_name = ?, profile_picture_url = ?, biography = ?, bio = ?,
+                         website = ?, account_type = 'BUSINESS', encrypted_access_token = ?,
+                         access_token = ?, token_expires_at = ?, is_connected = 1,
+                         connection_status = 'CONNECTED', last_synced_at = CURRENT_TIMESTAMP,
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE id = ?`,
+                    [
+                        profile.instagramUserId, profile.username, profile.username,
+                        profile.name, profile.profilePictureUrl, profile.biography, profile.biography,
+                        profile.website, encryptedToken, encryptedToken, tokenExpiresAt, accountRecordId
+                    ]
                 );
+            } else {
+                accountRecordId = `iga_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+                run(
+                    `INSERT INTO instagram_accounts (
+                        id, creator_id, user_id, instagram_user_id, instagram_username,
+                        username, full_name, profile_picture_url, biography, bio,
+                        website, account_type, encrypted_access_token, access_token,
+                        token_expires_at, is_connected, connection_status, last_synced_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'BUSINESS', ?, ?, ?, 1, 'CONNECTED', CURRENT_TIMESTAMP)`,
+                    [
+                        accountRecordId, creatorId, userId, profile.instagramUserId,
+                        profile.username, profile.username, profile.name, profile.profilePictureUrl,
+                        profile.biography, profile.biography, profile.website, encryptedToken,
+                        encryptedToken, tokenExpiresAt
+                    ]
+                );
+            }
+        });
 
-                // Insert media items
-                for (const m of mediaList) {
-                    const existingMedia = queryOne('SELECT id FROM instagram_media WHERE media_id = ? AND creator_id = ?', [m.id, creatorId]);
-                    if (!existingMedia) {
-                        run(
-                            `INSERT INTO instagram_media (
-                                id, instagram_account_id, creator_id, media_id, caption,
-                                media_type, media_url, thumbnail_url, permalink, like_count,
-                                comments_count, timestamp
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                            [
-                                `med_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-                                accountRecordId, creatorId, m.id, m.caption || '',
-                                m.media_type || 'IMAGE', m.media_url || '', m.thumbnail_url || '',
-                                m.permalink || '', Number(m.like_count) || 0, Number(m.comments_count) || 0,
-                                m.timestamp || new Date().toISOString()
-                            ]
-                        );
-                    }
+        // 4. Synchronize initial media and insights
+        let mediaResult = { recordsUpdated: 0, totalLikes: 0, totalComments: 0, measurableCount: 0 };
+        let insights = { reach: null, impressions: null, profile_views: null };
+
+        try {
+            const mediaList = await InstagramMediaSyncService.fetchFromMeta(accessToken, profile.instagramUserId);
+            mediaResult = InstagramMediaSyncService.syncMediaCollection({
+                instagramAccountId: accountRecordId,
+                creatorId,
+                mediaList
+            });
+        } catch (mediaErr) {
+            console.warn('[Instagram Sync Warning] Initial media sync partial failure:', mediaErr.message);
+        }
+
+        try {
+            insights = await InstagramInsightsService.fetchInsightsFromMeta(accessToken, profile.instagramUserId);
+        } catch (insightsErr) {
+            console.warn('[Instagram Sync Warning] Initial insights partial failure:', insightsErr.message);
+        }
+
+        // 5. Calculate real engagement rate strictly from measurable items (never invent)
+        let engagementRate = null;
+        if (profile.followersCount !== null && profile.followersCount > 0 && mediaResult.measurableCount > 0) {
+            const totalInteractions = mediaResult.totalLikes + mediaResult.totalComments;
+            engagementRate = Number(((totalInteractions / (mediaResult.measurableCount * profile.followersCount)) * 100).toFixed(2));
+        }
+
+        // 6. Record metrics snapshot
+        const metricId = `met_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+        run(
+            `INSERT INTO instagram_metrics (
+                id, instagram_account_id, creator_id, followers_count,
+                following_count, media_count, reach, impressions,
+                profile_views, engagement_rate, data_source, source, recorded_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Instagram', 'LIVE_API', CURRENT_TIMESTAMP)`,
+            [
+                metricId, accountRecordId, creatorId, profile.followersCount,
+                profile.followingCount, profile.mediaCount, insights.reach,
+                insights.impressions, insights.profile_views, engagementRate
+            ]
+        );
+
+        // 7. Record sync log
+        const logId = `synclog_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+        run(
+            `INSERT INTO instagram_sync_logs (
+                id, instagram_account_id, creator_id, started_at, completed_at,
+                status, records_updated
+            ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 'SUCCESS', ?)`,
+            [
+                logId, accountRecordId, creatorId,
+                new Date(startTime).toISOString(), mediaResult.recordsUpdated
+            ]
+        );
+
+        console.log(`[Instagram Sync Completed] Account linked: @${profile.username} (ID: ${profile.instagramUserId})`);
+
+        return {
+            success: true,
+            account: {
+                instagramUserId: profile.instagramUserId,
+                username: profile.username,
+                fullName: profile.name,
+                accountType: 'BUSINESS',
+                followersCount: profile.followersCount,
+                mediaCount: profile.mediaCount,
+                engagementRate
+            }
+        };
+    }
+
+    /**
+     * Synchronize latest account data (Manual Refresh / Background Sync)
+     * Resilient Failure Handling: Never overwrites existing valid data with zeros on failure.
+     */
+    static async syncAccount(creatorId) {
+        const startTime = Date.now();
+        const account = queryOne(
+            `SELECT id, user_id, instagram_user_id, encrypted_access_token,
+                    access_token, token_expires_at, account_type
+             FROM instagram_accounts
+             WHERE creator_id = ? AND is_connected = 1`,
+            [creatorId]
+        );
+
+        if (!account) {
+            throw new Error('No active Instagram account connected for this creator.');
+        }
+
+        // Handle Development Mock Account refresh
+        if (account.account_type === 'MOCK_DEVELOPMENT' || account.account_type === 'SANDBOX_DEV_MODE') {
+            run('UPDATE instagram_accounts SET last_synced_at = CURRENT_TIMESTAMP WHERE id = ?', [account.id]);
+            return {
+                success: true,
+                is_mock: true,
+                data_source: 'DEMO DATA',
+                message: 'Development account data refreshed.',
+                last_synced_at: new Date().toISOString()
+            };
+        }
+
+        // Check token expiration
+        if (account.token_expires_at && new Date(account.token_expires_at) < new Date()) {
+            run("UPDATE instagram_accounts SET connection_status = 'TOKEN_EXPIRED' WHERE id = ?", [account.id]);
+            throw new Error('Instagram connection needs attention. Token expired. Please reconnect Instagram.');
+        }
+
+        // Decrypt access token securely
+        const tokenCipher = account.encrypted_access_token || account.access_token;
+        const accessToken = TokenEncryptionService.decrypt(tokenCipher);
+
+        if (!accessToken) {
+            run("UPDATE instagram_accounts SET connection_status = 'REAUTH_REQUIRED' WHERE id = ?", [account.id]);
+            throw new Error('Secure credentials could not be decrypted. Re-authorization required.');
+        }
+
+        try {
+            // 1. Fetch fresh profile
+            const profileUrl = `https://graph.facebook.com/v19.0/${encodeURIComponent(account.instagram_user_id)}?fields=id,username,name,biography,profile_picture_url,website,followers_count,follows_count,media_count&access_token=${encodeURIComponent(accessToken)}`;
+            const profRes = await fetch(profileUrl);
+            const profData = await profRes.json();
+
+            if (!profRes.ok || profData.error) {
+                const errMsg = profData.error?.message || 'Meta profile refresh request failed.';
+                if (profData.error?.code === 190) { // OAuthException / Invalid token
+                    run("UPDATE instagram_accounts SET connection_status = 'TOKEN_EXPIRED' WHERE id = ?", [account.id]);
                 }
+                throw new Error(errMsg);
+            }
+
+            const validatedProfile = InstagramValidationService.validateProfileResponse(profData);
+
+            // 2. Fetch fresh media
+            const mediaList = await InstagramMediaSyncService.fetchFromMeta(accessToken, account.instagram_user_id);
+            const mediaResult = InstagramMediaSyncService.syncMediaCollection({
+                instagramAccountId: account.id,
+                creatorId,
+                mediaList
             });
 
-            const durationMs = Date.now() - startTime;
-            // Record audit log
+            // 3. Fetch insights
+            const insights = await InstagramInsightsService.fetchInsightsFromMeta(accessToken, account.instagram_user_id);
+
+            // 4. Calculate real engagement rate
+            let engagementRate = null;
+            if (validatedProfile.followersCount !== null && validatedProfile.followersCount > 0 && mediaResult.measurableCount > 0) {
+                const totalInteractions = mediaResult.totalLikes + mediaResult.totalComments;
+                engagementRate = Number(((totalInteractions / (mediaResult.measurableCount * validatedProfile.followersCount)) * 100).toFixed(2));
+            }
+
+            // 5. Update account metadata
             run(
-                `INSERT INTO refresh_logs (id, creator_id, instagram_account_id, status, metrics_updated_count, sync_duration_ms)
-                 VALUES (?, ?, ?, 'SUCCESS', ?, ?)`,
-                [`log_${Date.now()}`, creatorId, accountRecordId, mediaList.length, durationMs]
+                `UPDATE instagram_accounts
+                 SET instagram_username = ?, username = ?, full_name = ?,
+                     profile_picture_url = ?, biography = ?, bio = ?,
+                     website = ?, last_synced_at = CURRENT_TIMESTAMP,
+                     connection_status = 'CONNECTED'
+                 WHERE id = ?`,
+                [
+                    validatedProfile.username, validatedProfile.username, validatedProfile.name,
+                    validatedProfile.profilePictureUrl, validatedProfile.biography, validatedProfile.biography,
+                    validatedProfile.website, account.id
+                ]
             );
 
-            console.log(`[Instagram Sync Completed] Creator ID: ${creatorId}, Followers: ${followers}, Media count: ${mediaCount}`);
+            // 6. Record metrics snapshot
+            const metricId = `met_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+            run(
+                `INSERT INTO instagram_metrics (
+                    id, instagram_account_id, creator_id, followers_count,
+                    following_count, media_count, reach, impressions,
+                    profile_views, engagement_rate, data_source, source, recorded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Instagram', 'LIVE_API', CURRENT_TIMESTAMP)`,
+                [
+                    metricId, account.id, creatorId, validatedProfile.followersCount,
+                    validatedProfile.followingCount, validatedProfile.mediaCount,
+                    insights.reach, insights.impressions, insights.profile_views,
+                    engagementRate
+                ]
+            );
+
+            // 7. Record sync log
+            run(
+                `INSERT INTO instagram_sync_logs (
+                    id, instagram_account_id, creator_id, started_at, completed_at,
+                    status, records_updated
+                ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 'SUCCESS', ?)`,
+                [
+                    `synclog_${Date.now()}`, account.id, creatorId,
+                    new Date(startTime).toISOString(), mediaResult.recordsUpdated
+                ]
+            );
 
             return {
                 success: true,
-                username,
-                followers_count: followers,
-                follows_count: follows,
-                media_count: mediaCount,
-                engagement_rate: realEngagementRate,
+                message: 'Instagram data refreshed successfully from official Meta API.',
                 last_synced_at: new Date().toISOString()
             };
         } catch (err) {
-            const durationMs = Date.now() - startTime;
+            // Record failure in audit log WITHOUT zeroing existing data
             run(
-                `INSERT INTO refresh_logs (id, creator_id, status, error_message, sync_duration_ms)
-                 VALUES (?, ?, 'FAILED', ?, ?)`,
-                [`log_${Date.now()}`, creatorId, err.message, durationMs]
+                `INSERT INTO instagram_sync_logs (
+                    id, instagram_account_id, creator_id, started_at, completed_at,
+                    status, error_message
+                ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 'FAILED', ?)`,
+                [`synclog_${Date.now()}`, account.id, creatorId, new Date(startTime).toISOString(), err.message]
             );
-            console.error('[Instagram Sync Failed]', err.message);
+
+            console.error('[Instagram Sync Exception]', err.message);
+            // Re-throw so caller can display: "Instagram synchronization failed. Showing last successfully synchronized data."
             throw err;
         }
     }
 
     /**
-     * Get Authoritative Instagram Status & Metrics for a Creator
+     * Retrieve authoritative status, validated metrics, snapshots, and media for creator
      */
     static getStatus(creatorId) {
+        if (!creatorId) return { is_connected: false, connection_status: 'NOT_CONNECTED' };
+
         const account = queryOne(
-            `SELECT id, instagram_user_id, username, full_name, profile_picture_url,
-                    bio, account_type, connection_status, is_connected, last_synced_at,
-                    token_expires_at
+            `SELECT id, instagram_user_id, instagram_username, username,
+                    full_name, profile_picture_url, biography, bio, website,
+                    account_type, connection_status, is_connected, token_expires_at,
+                    last_synced_at
              FROM instagram_accounts
-             WHERE creator_id = ?`,
+             WHERE creator_id = ? AND is_connected = 1`,
             [creatorId]
         );
 
-        if (!account || account.is_connected === 0) {
+        if (!account) {
             return {
                 is_connected: false,
                 connection_status: 'NOT_CONNECTED',
-                message: 'No Instagram account connected. Connect an account to unlock real analytics.',
+                account: null,
                 metrics: null,
-                snapshots: [],
                 media: [],
-                has_sufficient_chart_data: false
+                snapshots: []
             };
         }
 
-        // Check token expiration
         const isExpired = account.token_expires_at && new Date(account.token_expires_at) < new Date();
         const effectiveStatus = isExpired ? 'TOKEN_EXPIRED' : (account.connection_status || 'CONNECTED');
+        const isMock = account.account_type === 'MOCK_DEVELOPMENT' || account.account_type === 'SANDBOX_DEV_MODE';
+        const defaultSource = isMock ? 'SANDBOX_DEV_MODE' : 'Instagram';
 
-        // Latest recorded metrics
+        // Authoritative latest metric snapshot
         const latestMetric = queryOne(
-            `SELECT followers_count, follows_count, media_count, reach, impressions, engagement_rate, source, recorded_at
+            `SELECT followers_count, following_count, media_count, reach,
+                    impressions, profile_views, website_clicks, engagement_rate,
+                    data_source, source, recorded_at
              FROM instagram_metrics
              WHERE instagram_account_id = ?
              ORDER BY recorded_at DESC
@@ -287,226 +508,95 @@ class InstagramService {
             [account.id]
         );
 
-        // Historical snapshots (for real trend visualization)
-        const snapshots = query(
-            `SELECT followers_count, follows_count, media_count, engagement_rate, recorded_at
-             FROM instagram_metrics
-             WHERE instagram_account_id = ?
-             ORDER BY recorded_at ASC
-             LIMIT 30`,
-            [account.id]
-        );
+        // Historical snapshots for growth calculations
+        const historical = InstagramInsightsService.getHistoricalTrends(account.id);
 
-        // Real media items
-        const media = query(
-            `SELECT media_id, caption, media_type, media_url, thumbnail_url, permalink, like_count, comments_count, timestamp
-             FROM instagram_media
-             WHERE instagram_account_id = ?
-             ORDER BY timestamp DESC
-             LIMIT 12`,
-            [account.id]
-        );
-
-        const isSandbox = account.account_type === 'SANDBOX_DEV_MODE';
+        // Synced media items
+        const media = InstagramMediaSyncService.getCreatorMedia(creatorId, 12);
 
         return {
             is_connected: true,
-            is_sandbox: isSandbox,
-            sandbox_badge: isSandbox ? 'SANDBOX / DEV MODE — NOT REAL DATA' : null,
+            is_mock: isMock,
+            is_sandbox: isMock,
+            mock_badge: isMock ? 'DEMO DATA' : null,
+            sandbox_badge: isMock ? 'SANDBOX / DEV MODE — NOT REAL DATA' : null,
             connection_status: effectiveStatus,
             account: {
-                username: account.username,
+                instagram_user_id: account.instagram_user_id,
+                username: account.instagram_username || account.username,
                 full_name: account.full_name,
                 profile_picture_url: account.profile_picture_url,
-                bio: account.bio,
+                biography: account.biography || account.bio,
+                website: account.website,
                 account_type: account.account_type,
                 last_synced_at: account.last_synced_at
             },
             metrics: latestMetric ? {
-                followers: { value: latestMetric.followers_count, source: isSandbox ? 'SANDBOX_DEV_MODE' : (latestMetric.source || 'LIVE_API'), label: 'Followers' },
-                following: { value: latestMetric.follows_count, source: isSandbox ? 'SANDBOX_DEV_MODE' : (latestMetric.source || 'LIVE_API'), label: 'Following' },
-                media_count: { value: latestMetric.media_count, source: isSandbox ? 'SANDBOX_DEV_MODE' : (latestMetric.source || 'LIVE_API'), label: 'Posts' },
-                engagement_rate: { value: latestMetric.engagement_rate, source: isSandbox ? 'SANDBOX_DEV_MODE' : 'CALCULATED', label: 'Engagement Rate' },
+                followers: InstagramValidationService.formatMetricField(latestMetric.followers_count, 'Followers', latestMetric.source || latestMetric.data_source || defaultSource),
+                following: InstagramValidationService.formatMetricField(latestMetric.following_count, 'Following', latestMetric.source || latestMetric.data_source || defaultSource),
+                media_count: InstagramValidationService.formatMetricField(latestMetric.media_count, 'Posts', latestMetric.source || latestMetric.data_source || defaultSource),
+                reach: InstagramValidationService.formatMetricField(latestMetric.reach, 'Reach', latestMetric.source || latestMetric.data_source || defaultSource),
+                impressions: InstagramValidationService.formatMetricField(latestMetric.impressions, 'Impressions', latestMetric.source || latestMetric.data_source || defaultSource),
+                engagement_rate: {
+                    value: latestMetric.engagement_rate,
+                    available: latestMetric.engagement_rate !== null,
+                    label: 'Engagement Rate',
+                    source: isMock ? 'SANDBOX_DEV_MODE' : 'CreaterHub Analytics',
+                    display: latestMetric.engagement_rate !== null ? `${latestMetric.engagement_rate}%` : 'Not available'
+                },
                 recorded_at: latestMetric.recorded_at
             } : null,
-            snapshots,
+            trends: historical.trends,
+            snapshots: historical.snapshots,
             media,
-            has_sufficient_chart_data: snapshots.length >= 2
+            has_sufficient_chart_data: historical.trends.hasSufficientHistory
         };
     }
 
     /**
-     * Connect via Developer Sandbox Mode for local testing
-     * (Strictly watermarked as SANDBOX_DEV_MODE)
-     */
-    static connectSandboxAccount(creatorId, customOptions = {}) {
-        const creator = queryOne('SELECT user_id, full_name, username, avatar_url, bio FROM creator_profiles WHERE id = ?', [creatorId]);
-        const userId = creator?.user_id || 'usr_dev';
-        const cleanUsername = (customOptions.username || creator?.username || 'creator_dev').replace('@', '').trim();
-        const fullName = (customOptions.fullName || creator?.full_name || 'Verified Creator').trim();
-        const avatar = customOptions.avatarUrl || creator?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&h=300&fit=crop';
-        const bio = (customOptions.bio || creator?.bio || 'Bengaluru content creator & storyteller. Connected via Sandbox Test Mode.').trim();
-        const followers = Number(customOptions.followersCount) || 18400;
-        const follows = Number(customOptions.followingCount) || 520;
-        const mediaCount = Number(customOptions.mediaCount) || 42;
-        const engagementRate = Number(customOptions.engagementRate) || 4.35;
-
-        transaction(() => {
-            const existing = queryOne('SELECT id FROM instagram_accounts WHERE creator_id = ?', [creatorId]);
-            let accountId = existing?.id;
-
-            if (existing) {
-                run(
-                    `UPDATE instagram_accounts
-                     SET username = ?, full_name = ?, profile_picture_url = ?, bio = ?,
-                         account_type = 'SANDBOX_DEV_MODE', access_token = 'sandbox_test_token',
-                         is_connected = 1, connection_status = 'CONNECTED',
-                         last_synced_at = CURRENT_TIMESTAMP
-                     WHERE id = ?`,
-                    [cleanUsername, fullName, avatar, bio, accountId]
-                );
-            } else {
-                accountId = `iga_${Date.now()}_sandbox`;
-                run(
-                    `INSERT INTO instagram_accounts (
-                        id, creator_id, user_id, instagram_user_id, username, full_name,
-                        profile_picture_url, bio, account_type, access_token, is_connected, connection_status, last_synced_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SANDBOX_DEV_MODE', 'sandbox_test_token', 1, 'CONNECTED', CURRENT_TIMESTAMP)`,
-                    [accountId, creatorId, userId, `sandbox_${Date.now()}`, cleanUsername, fullName, avatar, bio]
-                );
-            }
-
-            // Insert metrics
-            const metricId = `met_${Date.now()}_sandbox`;
-            run(
-                `INSERT INTO instagram_metrics (
-                    id, instagram_account_id, creator_id, followers_count,
-                    follows_count, media_count, engagement_rate, source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'SANDBOX_DEV_MODE')`,
-                [metricId, accountId, creatorId, followers, follows, mediaCount, engagementRate]
-            );
-
-            // Insert 4 historical snapshots for trend charts
-            const snapshotsData = [
-                { daysAgo: 30, followers: 16200, eng: 4.1 },
-                { daysAgo: 20, followers: 16900, eng: 4.2 },
-                { daysAgo: 10, followers: 17600, eng: 4.3 },
-                { daysAgo: 0, followers: 18400, eng: 4.35 }
-            ];
-
-            for (const s of snapshotsData) {
-                const date = new Date(Date.now() - s.daysAgo * 86400000).toISOString();
-                run(
-                    `INSERT INTO instagram_metrics (
-                        id, instagram_account_id, creator_id, followers_count,
-                        follows_count, media_count, engagement_rate, recorded_at, source
-                    ) VALUES (?, ?, ?, ?, 520, 42, ?, ?, 'SANDBOX_DEV_MODE')`,
-                    [`snap_${Date.now()}_${s.daysAgo}`, accountId, creatorId, s.followers, s.eng, date]
-                );
-            }
-
-            // Clear old sandbox media if any to avoid duplication
-            run('DELETE FROM instagram_media WHERE creator_id = ?', [creatorId]);
-
-            const sampleMedia = [
-                {
-                    id: `med_sbx_1`,
-                    caption: 'Golden hour pour-over at Third Wave Indiranagar. Rich notes of dark chocolate and orange zest. ☕✨ #BangaloreCafes #SpecialtyCoffee',
-                    type: 'VIDEO',
-                    url: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=600&h=600&fit=crop',
-                    likes: 1240,
-                    comments: 86
-                },
-                {
-                    id: `med_sbx_2`,
-                    caption: 'Weekend aesthetic exploration in Church Street. Streets, books, and cold brew vibes. 📸 #NammaBengaluru #CityVibes',
-                    type: 'IMAGE',
-                    url: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600&h=600&fit=crop',
-                    likes: 980,
-                    comments: 54
-                },
-                {
-                    id: `med_sbx_3`,
-                    caption: 'Behind the scenes at the morning roastery session. The aroma of freshly cracked beans never gets old! 🌿',
-                    type: 'CAROUSEL_ALBUM',
-                    url: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=600&h=600&fit=crop',
-                    likes: 1450,
-                    comments: 112
-                },
-                {
-                    id: `med_sbx_4`,
-                    caption: 'Sundowner vibes & handcrafted cocktails with good company. The city comes alive after dark. 🍸🌃',
-                    type: 'VIDEO',
-                    url: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=600&h=600&fit=crop',
-                    likes: 890,
-                    comments: 42
-                }
-            ];
-
-            for (const m of sampleMedia) {
-                run(
-                    `INSERT INTO instagram_media (
-                        id, instagram_account_id, creator_id, media_id, caption,
-                        media_type, media_url, permalink, like_count, comments_count, timestamp
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-                    [
-                        `med_${Date.now()}_${m.id}`,
-                        accountId,
-                        creatorId,
-                        m.id,
-                        m.caption,
-                        m.type,
-                        m.url,
-                        `https://instagram.com/p/${m.id}`,
-                        m.likes,
-                        m.comments
-                    ]
-                );
-            }
-        });
-
-        return {
-            success: true,
-            is_sandbox: true,
-            message: 'Connected via Developer Sandbox Mode for local testing.',
-            username: cleanUsername,
-            followers_count: 18400,
-            engagement_rate: 4.35
-        };
-    }
-
-    /**
-     * Disconnect Instagram Account
+     * Disconnect Instagram Account safely
      */
     static disconnect(creatorId) {
+        if (!creatorId) throw new Error('creatorId is required to disconnect Instagram account.');
+
         run(
             `UPDATE instagram_accounts
-             SET is_connected = 0, connection_status = 'NOT_CONNECTED', access_token = ''
+             SET is_connected = 0, connection_status = 'DISCONNECTED',
+                 encrypted_access_token = '', access_token = '',
+                 updated_at = CURRENT_TIMESTAMP
              WHERE creator_id = ?`,
             [creatorId]
         );
-        return { success: true, message: 'Instagram account disconnected.' };
+
+        return {
+            success: true,
+            message: 'Instagram account disconnected successfully.'
+        };
     }
 
     /**
-     * Get Developer Diagnostics / Configuration Status
+     * Developer sandbox connector (delegates to MockInstagramService with production check)
+     */
+    static connectSandboxAccount(creatorId, customData = {}) {
+        return MockInstagramService.connectMockAccount(creatorId, customData);
+    }
+
+    /**
+     * Diagnostic report for developers and admins
      */
     static getConfigDiagnostics() {
-        const totalConnected = queryOne('SELECT COUNT(*) as count FROM instagram_accounts WHERE is_connected = 1')?.count || 0;
-        const totalLogs = query('SELECT * FROM refresh_logs ORDER BY logged_at DESC LIMIT 10');
-        const failedSyncs = queryOne("SELECT COUNT(*) as count FROM refresh_logs WHERE status = 'FAILED'")?.count || 0;
-        const successSyncs = queryOne("SELECT COUNT(*) as count FROM refresh_logs WHERE status = 'SUCCESS'")?.count || 0;
-
+        const stats = queryOne('SELECT count(*) as total, sum(case when is_connected = 1 then 1 else 0 end) as connected FROM instagram_accounts');
         return {
             is_configured: this.isConfigured(),
-            meta_app_id_present: Boolean(META_APP_ID),
+            app_id_present: Boolean(META_APP_ID),
+            app_secret_present: Boolean(META_APP_SECRET),
             redirect_uri: META_REDIRECT_URI,
-            total_connected_accounts: totalConnected,
+            mock_mode_available: this.isMockEnabled(),
+            environment: process.env.NODE_ENV || 'development',
             sync_statistics: {
-                total_successful: successSyncs,
-                total_failed: failedSyncs
-            },
-            recent_logs: totalLogs
+                total_accounts: stats?.total || 0,
+                active_connections: stats?.connected || 0
+            }
         };
     }
 }

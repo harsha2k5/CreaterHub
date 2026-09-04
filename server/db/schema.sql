@@ -76,16 +76,30 @@ CREATE TABLE IF NOT EXISTS brand_profiles (
 CREATE INDEX IF NOT EXISTS idx_brand_user_id ON brand_profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_brand_location ON brand_profiles(city, lat, lng);
 
+CREATE TABLE IF NOT EXISTS oauth_states (
+    id TEXT PRIMARY KEY,
+    creator_id TEXT NOT NULL REFERENCES creator_profiles(id) ON DELETE CASCADE,
+    state_token TEXT UNIQUE NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_states_token ON oauth_states(state_token);
+
 CREATE TABLE IF NOT EXISTS instagram_accounts (
     id TEXT PRIMARY KEY,
     creator_id TEXT UNIQUE NOT NULL REFERENCES creator_profiles(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     instagram_user_id TEXT NOT NULL,
+    instagram_username TEXT NOT NULL,
     username TEXT NOT NULL,
-    full_name TEXT,
-    profile_picture_url TEXT,
-    bio TEXT,
+    profile_url TEXT,
     account_type TEXT DEFAULT 'BUSINESS',
+    profile_picture_url TEXT,
+    biography TEXT,
+    bio TEXT,
+    website TEXT,
+    encrypted_access_token TEXT,
     access_token TEXT NOT NULL,
     token_expires_at TIMESTAMP,
     connection_status TEXT DEFAULT 'CONNECTED',
@@ -98,19 +112,24 @@ CREATE TABLE IF NOT EXISTS instagram_accounts (
 
 CREATE INDEX IF NOT EXISTS idx_ig_creator_id ON instagram_accounts(creator_id);
 CREATE INDEX IF NOT EXISTS idx_ig_user_id ON instagram_accounts(instagram_user_id);
+CREATE INDEX IF NOT EXISTS idx_ig_username ON instagram_accounts(instagram_username);
 
 CREATE TABLE IF NOT EXISTS instagram_metrics (
     id TEXT PRIMARY KEY,
     instagram_account_id TEXT NOT NULL REFERENCES instagram_accounts(id) ON DELETE CASCADE,
     creator_id TEXT NOT NULL REFERENCES creator_profiles(id) ON DELETE CASCADE,
-    followers_count INTEGER DEFAULT 0,
-    follows_count INTEGER DEFAULT 0,
-    media_count INTEGER DEFAULT 0,
-    reach INTEGER DEFAULT 0,
-    impressions INTEGER DEFAULT 0,
-    engagement_rate REAL DEFAULT 0.0,
+    followers_count INTEGER,
+    following_count INTEGER,
+    media_count INTEGER,
+    reach INTEGER,
+    impressions INTEGER,
+    profile_views INTEGER,
+    website_clicks INTEGER,
+    engagement_rate REAL,
+    data_source TEXT DEFAULT 'Instagram',
     source TEXT DEFAULT 'LIVE_API',
-    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_metrics_account ON instagram_metrics(instagram_account_id, recorded_at);
@@ -119,18 +138,42 @@ CREATE TABLE IF NOT EXISTS instagram_media (
     id TEXT PRIMARY KEY,
     instagram_account_id TEXT NOT NULL REFERENCES instagram_accounts(id) ON DELETE CASCADE,
     creator_id TEXT NOT NULL REFERENCES creator_profiles(id) ON DELETE CASCADE,
+    instagram_media_id TEXT,
     media_id TEXT NOT NULL,
     caption TEXT,
     media_type TEXT DEFAULT 'IMAGE',
     media_url TEXT,
     thumbnail_url TEXT,
     permalink TEXT,
-    like_count INTEGER DEFAULT 0,
-    comments_count INTEGER DEFAULT 0,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    like_count INTEGER,
+    comments_count INTEGER,
+    comment_count INTEGER,
+    view_count INTEGER,
+    reach INTEGER,
+    impressions INTEGER,
+    saved_count INTEGER,
+    shares INTEGER,
+    last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_account ON instagram_media(instagram_account_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_media_ig_id ON instagram_media(instagram_media_id);
+
+CREATE TABLE IF NOT EXISTS instagram_sync_logs (
+    id TEXT PRIMARY KEY,
+    instagram_account_id TEXT REFERENCES instagram_accounts(id) ON DELETE SET NULL,
+    creator_id TEXT REFERENCES creator_profiles(id) ON DELETE CASCADE,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    status TEXT NOT NULL,
+    records_updated INTEGER DEFAULT 0,
+    error_code TEXT,
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_logs_account ON instagram_sync_logs(instagram_account_id, started_at);
 
 CREATE TABLE IF NOT EXISTS instagram_insights (
     id TEXT PRIMARY KEY,

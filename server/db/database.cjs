@@ -55,6 +55,76 @@ async function initDB() {
         await pgPool.query(schemaSql);
         console.log('✅ PostgreSQL Schema initialized successfully');
     } else {
+        // Auto-migrate any columns added to existing SQLite tables BEFORE schemaSql creates indexes
+        try {
+            const getColumns = (table) => {
+                const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?").get(table);
+                if (!tableExists) return null;
+                const info = db.prepare(`PRAGMA table_info(${table})`).all();
+                return new Set(info.map(c => c.name));
+            };
+
+            // Migrate instagram_accounts
+            const accountCols = getColumns('instagram_accounts');
+            if (accountCols) {
+                const accountAdditions = [
+                    ['instagram_user_id', 'TEXT'],
+                    ['instagram_username', 'TEXT'],
+                    ['encrypted_access_token', 'TEXT'],
+                    ['biography', 'TEXT'],
+                    ['website', 'TEXT'],
+                    ['connection_status', "TEXT DEFAULT 'CONNECTED'"]
+                ];
+                for (const [col, typeDef] of accountAdditions) {
+                    if (!accountCols.has(col)) {
+                        db.exec(`ALTER TABLE instagram_accounts ADD COLUMN ${col} ${typeDef};`);
+                    }
+                }
+            }
+
+            // Migrate instagram_metrics
+            const metricCols = getColumns('instagram_metrics');
+            if (metricCols) {
+                const metricAdditions = [
+                    ['following_count', 'INTEGER'],
+                    ['reach', 'INTEGER'],
+                    ['impressions', 'INTEGER'],
+                    ['profile_views', 'INTEGER'],
+                    ['website_clicks', 'INTEGER'],
+                    ['data_source', "TEXT DEFAULT 'Instagram'"]
+                ];
+                for (const [col, typeDef] of metricAdditions) {
+                    if (!metricCols.has(col)) {
+                        db.exec(`ALTER TABLE instagram_metrics ADD COLUMN ${col} ${typeDef};`);
+                    }
+                }
+            }
+
+            // Migrate instagram_media
+            const mediaCols = getColumns('instagram_media');
+            if (mediaCols) {
+                const mediaAdditions = [
+                    ['instagram_media_id', 'TEXT'],
+                    ['view_count', 'INTEGER'],
+                    ['reach', 'INTEGER'],
+                    ['impressions', 'INTEGER'],
+                    ['saved_count', 'INTEGER'],
+                    ['comment_count', 'INTEGER'],
+                    ['comments_count', 'INTEGER'],
+                    ['data_source', "TEXT DEFAULT 'Instagram'"],
+                    ['source', "TEXT DEFAULT 'LIVE_API'"],
+                    ['last_synced_at', 'TIMESTAMP']
+                ];
+                for (const [col, typeDef] of mediaAdditions) {
+                    if (!mediaCols.has(col)) {
+                        db.exec(`ALTER TABLE instagram_media ADD COLUMN ${col} ${typeDef};`);
+                    }
+                }
+            }
+        } catch (migErr) {
+            console.warn('⚠️ Auto-migration check warning:', migErr.message);
+        }
+
         db.exec(schemaSql);
         console.log('✅ SQLite Relational Schema initialized successfully');
     }
