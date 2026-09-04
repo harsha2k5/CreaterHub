@@ -1,169 +1,154 @@
 const express = require('express');
 const router = express.Router();
-const { User, Brand, Creator, Campaign, Collaboration, Payment, Report } = require('../models/index.cjs');
+const { query, queryOne, run } = require('../db/database.cjs');
 const { authenticateToken, requireAdmin } = require('../middleware/auth.cjs');
+const InstagramService = require('../services/InstagramService.cjs');
 
-// GET /api/admin/stats
-router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
+// All admin routes require authenticated admin
+router.use(authenticateToken, requireAdmin);
+
+// GET /api/admin/stats - High level platform metrics
+router.get('/stats', (req, res) => {
     try {
-        const [
-            totalUsers,
-            totalBrands,
-            totalCreators,
-            activeCampaigns,
-            completedCampaigns,
-            collaborations,
-            payments,
-            pendingReports
-        ] = await Promise.all([
-            User.countDocuments({}),
-            Brand.countDocuments({}),
-            Creator.countDocuments({}),
-            Campaign.countDocuments({ status: 'published' }),
-            Campaign.countDocuments({ status: 'closed' }),
-            Collaboration.find({}).lean(),
-            Payment.find({ status: 'paid' }).lean(),
-            Report.countDocuments({ status: 'pending' })
-        ]);
+        const totalCreators = queryOne("SELECT COUNT(*) as count FROM users WHERE role = 'creator'")?.count || 0;
+        const totalBrands = queryOne("SELECT COUNT(*) as count FROM users WHERE role = 'brand'")?.count || 0;
+        const totalCampaigns = queryOne('SELECT COUNT(*) as count FROM campaigns')?.count || 0;
+        const activeCampaigns = queryOne("SELECT COUNT(*) as count FROM campaigns WHERE status = 'PUBLISHED'")?.count || 0;
+        const completedCollabs = queryOne("SELECT COUNT(*) as count FROM collaborations WHERE status = 'COMPLETED'")?.count || 0;
+        const totalApps = queryOne('SELECT COUNT(*) as count FROM campaign_applications')?.count || 0;
 
-        const totalVolume = payments.reduce((acc, p) => acc + (p.amount || 0), 0);
-        const workedTogetherCount = collaborations.length;
+        const gmvResult = queryOne('SELECT SUM(amount) as total FROM payments WHERE status = "RELEASED"');
+        const totalGMV = gmvResult?.total || 0;
+
+        const escrowResult = queryOne('SELECT SUM(amount) as total FROM payments WHERE status = "HELD_IN_ESCROW"');
+        const totalEscrow = escrowResult?.total || 0;
+
+        const igConnected = queryOne('SELECT COUNT(*) as count FROM instagram_accounts WHERE is_connected = 1')?.count || 0;
 
         return res.json({
             success: true,
             stats: {
-                totalUsers,
-                totalBrands,
-                totalCreators,
-                activeCampaigns,
-                completedCampaigns,
-                workedTogetherCount,
-                totalVolume,
-                pendingReports
+                total_creators: totalCreators,
+                total_brands: totalBrands,
+                total_campaigns: totalCampaigns,
+                active_campaigns: activeCampaigns,
+                completed_collaborations: completedCollabs,
+                total_applications: totalApps,
+                total_gmv: totalGMV,
+                held_in_escrow: totalEscrow,
+                instagram_connected_count: igConnected
             }
         });
     } catch (err) {
-        return res.status(500).json({ success: false, error: 'Failed to load admin stats.' });
+        console.error('Error fetching admin stats:', err);
+        return res.status(500).json({ success: false, error: 'Failed to retrieve admin stats.' });
     }
 });
 
-// GET /api/admin/users
-router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
+// GET /api/admin/users - User directory
+router.get('/users', (req, res) => {
     try {
-        const rawUsers = await User.find({}).sort({ created_at: -1 }).lean();
-
-        const userIds = rawUsers.map(u => u.id);
-        const [brands, creators] = await Promise.all([
-            Brand.find({ user_id: { $in: userIds } }).lean(),
-            Creator.find({ user_id: { $in: userIds } }).lean()
-        ]);
-
-        const brandMap = {}; brands.forEach(b => brandMap[b.user_id] = b);
-        const creatorMap = {}; creators.forEach(cr => creatorMap[cr.user_id] = cr);
-
-        const users = rawUsers.map(u => {
-            const b = brandMap[u.id] || {};
-            const cr = creatorMap[u.id] || {};
-            return {
-                id: u.id,
-                email: u.email,
-                role: u.role,
-                is_verified: u.is_verified,
-                created_at: u.created_at,
-                brand_name: b.company_name || null,
-                creator_name: cr.full_name || null
-            };
-        });
+        const users = query(`
+            SELECT u.id, u.email, u.role, u.is_verified, u.is_active, u.created_at,
+                   c.full_name as creator_name, c.username as creator_username, c.id as creator_id,
+                   b.company_name as brand_name, b.id as brand_id,
+                   ia.is_connected as ig_connected
+            FROM users u
+            LEFT JOIN creator_profiles c ON u.id = c.user_id
+            LEFT JOIN brand_profiles b ON u.id = b.user_id
+            LEFT JOIN instagram_accounts ia ON c.id = ia.creator_id AND ia.is_connected = 1
+            ORDER BY u.created_at DESC
+        `);
 
         return res.json({ success: true, count: users.length, users });
     } catch (err) {
-        return res.status(500).json({ success: false, error: 'Failed to load users list.' });
+        console.error('Error listing users:', err);
+        return res.status(500).json({ success: false, error: 'Failed to retrieve users.' });
     }
 });
 
-// PUT /api/admin/verify-user/:id
-router.put('/verify-user/:id', authenticateToken, requireAdmin, async (req, res) => {
+// PUT /api/admin/users/:userId/suspend - Suspend or activate user
+router.put('/users/:userId/suspend', (req, res) => {
     try {
-        const userId = req.params.id;
-        const user = await User.findOne({ id: userId }).lean();
+        const { userId } = req.params;
+        const user = queryOne('SELECT is_active FROM users WHERE id = ?', [userId]);
         if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
 
-        const nextStatus = user.is_verified ? 0 : 1;
-        await User.updateOne({ id: userId }, { is_verified: nextStatus });
-
-        if (user.role === 'brand') {
-            await Brand.updateOne({ user_id: userId }, { verified: nextStatus });
-        } else if (user.role === 'creator') {
-            await Creator.updateOne({ user_id: userId }, { verified: nextStatus });
-        }
-
-        return res.json({ success: true, message: `Verification updated to ${nextStatus ? 'Verified' : 'Unverified'}.` });
-    } catch (err) {
-        return res.status(500).json({ success: false, error: 'Failed to update user verification.' });
-    }
-});
-
-// GET /api/admin/collaborations (Brand x Creator Working Partnerships & Financial Payouts)
-router.get('/collaborations', authenticateToken, requireAdmin, async (req, res) => {
-    try {
-        const rawCollabs = await Collaboration.find({}).sort({ created_at: -1 }).lean();
-
-        const campaignIds = [...new Set(rawCollabs.map(c => c.campaign_id))];
-        const brandIds = [...new Set(rawCollabs.map(c => c.brand_id))];
-        const creatorIds = [...new Set(rawCollabs.map(c => c.creator_id))];
-        const collabIds = rawCollabs.map(c => c.id);
-
-        const [campaigns, brands, creators, payments] = await Promise.all([
-            Campaign.find({ id: { $in: campaignIds } }).lean(),
-            Brand.find({ id: { $in: brandIds } }).lean(),
-            Creator.find({ id: { $in: creatorIds } }).lean(),
-            Payment.find({ collaboration_id: { $in: collabIds } }).lean()
-        ]);
-
-        const campaignMap = {}; campaigns.forEach(c => campaignMap[c.id] = c);
-        const brandMap = {}; brands.forEach(b => brandMap[b.id] = b);
-        const creatorMap = {}; creators.forEach(cr => creatorMap[cr.id] = cr);
-        const paymentMap = {}; payments.forEach(p => paymentMap[p.collaboration_id] = p);
-
-        const collaborations = rawCollabs.map(col => {
-            const camp = campaignMap[col.campaign_id] || {};
-            const brand = brandMap[col.brand_id] || {};
-            const creator = creatorMap[col.creator_id] || {};
-            const payment = paymentMap[col.id] || {};
-
-            const rewardAmount = camp.reward_per_creator || 0;
-            const paidAmount = payment.amount || (payment.status === 'paid' || col.current_step >= 5 ? rewardAmount : 0);
-
-            return {
-                id: col.id,
-                brand_name: brand.company_name || 'Brand Partner',
-                brand_logo: brand.logo_url || '',
-                creator_name: creator.full_name || 'Creator Partner',
-                creator_username: creator.username || '',
-                creator_avatar: creator.avatar_url || '',
-                campaign_title: camp.title || 'Sponsorship Campaign',
-                reward_amount: rewardAmount,
-                paid_amount: paidAmount,
-                payment_status: payment.status || (col.current_step >= 5 ? 'paid' : 'escrow_locked'),
-                status: col.status,
-                current_step: col.current_step,
-                created_at: col.created_at
-            };
-        });
-
-        const totalPaidOut = collaborations.reduce((sum, item) => sum + (item.paid_amount || 0), 0);
+        const newStatus = user.is_active === 1 ? 0 : 1;
+        run('UPDATE users SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newStatus, userId]);
 
         return res.json({
             success: true,
-            count: collaborations.length,
-            totalPaidOut,
-            collaborations
+            message: `User ${newStatus === 1 ? 'activated' : 'suspended'} successfully.`,
+            is_active: newStatus
         });
     } catch (err) {
-        console.error('Error fetching admin collaborations:', err);
-        return res.status(500).json({ success: false, error: 'Failed to load collaborations.' });
+        console.error('Error updating user status:', err);
+        return res.status(500).json({ success: false, error: 'Failed to update user status.' });
+    }
+});
+
+// PUT /api/admin/creators/:creatorId/verify - Toggle verified badge
+router.put('/creators/:creatorId/verify', (req, res) => {
+    try {
+        const { creatorId } = req.params;
+        const creator = queryOne('SELECT verified FROM creator_profiles WHERE id = ?', [creatorId]);
+        if (!creator) return res.status(404).json({ success: false, error: 'Creator not found.' });
+
+        const newStatus = creator.verified === 1 ? 0 : 1;
+        run('UPDATE creator_profiles SET verified = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newStatus, creatorId]);
+
+        return res.json({
+            success: true,
+            message: `Creator badge ${newStatus === 1 ? 'verified' : 'unverified'} successfully.`,
+            verified: newStatus
+        });
+    } catch (err) {
+        console.error('Error updating verification:', err);
+        return res.status(500).json({ success: false, error: 'Failed to update verification.' });
+    }
+});
+
+// GET /api/admin/campaigns - Moderate campaigns
+router.get('/campaigns', (req, res) => {
+    try {
+        const campaigns = query(`
+            SELECT c.*, b.company_name as brand_name, b.logo_url as brand_logo
+            FROM campaigns c
+            JOIN brand_profiles b ON c.brand_id = b.id
+            ORDER BY c.created_at DESC
+        `);
+
+        return res.json({ success: true, count: campaigns.length, campaigns });
+    } catch (err) {
+        console.error('Error fetching admin campaigns:', err);
+        return res.status(500).json({ success: false, error: 'Failed to retrieve campaigns.' });
+    }
+});
+
+// PATCH /api/admin/campaigns/:id/moderate - Moderate campaign
+router.patch('/campaigns/:id/moderate', (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        run('UPDATE campaigns SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [status, id]);
+        return res.json({ success: true, message: `Campaign status updated to ${status}.` });
+    } catch (err) {
+        console.error('Error moderating campaign:', err);
+        return res.status(500).json({ success: false, error: 'Failed to moderate campaign.' });
+    }
+});
+
+// GET /api/admin/instagram-health - Diagnostic Health Console
+router.get('/instagram-health', (req, res) => {
+    try {
+        const diagnostics = InstagramService.getConfigDiagnostics();
+        return res.json({ success: true, diagnostics });
+    } catch (err) {
+        console.error('Error fetching Instagram health diagnostics:', err);
+        return res.status(500).json({ success: false, error: 'Failed to load diagnostics.' });
     }
 });
 
 module.exports = router;
-

@@ -130,28 +130,36 @@ export const ExploreCampaignsPage: React.FC = () => {
                 <option value="5">5 km radius</option>
                 <option value="10">10 km radius</option>
                 <option value="25">25 km radius</option>
+                <option value="50">50 km radius</option>
               </select>
             </div>
           </div>
 
-          {/* Category Chips */}
-          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <span className="text-xs font-bold text-slate-400 mr-2 flex items-center gap-1">
-              <SlidersHorizontal className="w-3.5 h-3.5" /> Category:
+          {/* Category Chips & Proximity Badge */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-slate-400 mr-1 flex items-center gap-1">
+                <SlidersHorizontal className="w-3.5 h-3.5" /> Category:
+              </span>
+              {categoriesList.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setCategory(cat)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                    category === cat
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            <span className="px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-[11px] font-extrabold border border-blue-200 dark:border-blue-900 shrink-0 flex items-center gap-1 self-start sm:self-auto">
+              <MapPin className="w-3 h-3 text-blue-500" />
+              {campaigns.length} campaigns within {radius} km
             </span>
-            {categoriesList.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setCategory(cat)}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                  category === cat
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
           </div>
         </div>
 

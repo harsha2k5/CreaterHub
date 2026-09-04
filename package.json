@@ -9,18 +9,16 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.cjs",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node server/tests/test_auth_and_roles.cjs && node server/tests/test_campaign_matching.cjs && node server/tests/test_instagram_integrity.cjs && node server/tests/test_collaboration_flow.cjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "isomorphic-git": "^1.41.3",
     "jsonwebtoken": "^9.0.3",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.31.0",

@@ -120,9 +120,15 @@ export const DirectPitchModal: React.FC<DirectPitchModalProps> = ({
             <div>
               <h3 className="font-heading font-extrabold text-base text-slate-900 dark:text-white flex items-center gap-1.5">
                 Direct Pitch to {creator.full_name}
+                <CheckCircle2 className="w-4 h-4 text-purple-500 fill-purple-500/20" />
+                {(creator.verified === 1 || creator.verification_status === 'verified') && (
+                  <span className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
+                    ✓ Verified
+                  </span>
+                )}
                 <Sparkles className="w-4 h-4 text-purple-500" />
               </h3>
-              <p className="text-xs text-slate-500 font-medium">@{creator.username} • {creator.city}</p>
+              <p className="text-xs text-slate-500 font-medium">@{creator.username} • {creator.city} • {(creator.followers || 0).toLocaleString()} Followers ({creator.engagement_rate || 4.5}% ER)</p>
             </div>
           </div>
           <button

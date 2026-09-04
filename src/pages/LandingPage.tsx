@@ -1,329 +1,389 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Campaign } from '../types';
+import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import {
   Sparkles,
   ArrowRight,
   MapPin,
-  DollarSign,
   ShieldCheck,
   Zap,
   Users,
   Building2,
   CheckCircle2,
   TrendingUp,
-  Flame,
   Award,
   Clock,
-  Instagram,
-  Video,
-  PlaySquare
+  BarChart3,
+  Bot,
+  Compass,
+  DollarSign,
+  HeartHandshake
 } from 'lucide-react';
+import { Instagram } from '../components/icons/InstagramIcon';
 
 export const LandingPage: React.FC = () => {
-  const [featuredCampaigns, setFeaturedCampaigns] = useState<Campaign[]>([]);
-  const navigate = useNavigate();
+  const [featuredCampaigns, setFeaturedCampaigns] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'creator' | 'brand'>('creator');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadCampaigns = async () => {
+    const fetchCampaigns = async () => {
       try {
-        const res = await api.getCampaigns({ radius: '15' });
+        const res = await api.getCampaigns({ limit: '3' });
         if (res.success && res.campaigns) {
           setFeaturedCampaigns(res.campaigns.slice(0, 3));
         }
-      } catch (e) {
-        // Fallback demo card if backend loading
+      } catch (err) {
+        console.warn('Could not load featured briefs:', err);
+      } finally {
+        setLoading(false);
       }
     };
-    loadCampaigns();
+    fetchCampaigns();
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
+    <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-purple-500 selection:text-white">
+      {/* Top Banner */}
+      <div className="bg-gradient-to-r from-purple-900/60 via-indigo-900/60 to-purple-900/60 border-b border-purple-500/20 px-4 py-2 text-center text-xs font-medium text-purple-200">
+        <span className="inline-flex items-center gap-1.5 font-semibold">
+          <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+          Real Data First. Powered by Official Meta Graph API & AI Analytics.
+        </span>
+      </div>
+
       {/* Hero Section */}
-      <section className="relative overflow-hidden pt-16 pb-20 md:pt-24 md:pb-28">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-600/10 via-purple-600/5 to-transparent"></div>
-        
+      <section className="relative overflow-hidden pt-12 pb-20 md:pt-20 md:pb-32">
+        {/* Glow Gradients */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-purple-600/20 blur-[140px] rounded-full pointer-events-none" />
+        <div className="absolute top-1/3 left-1/4 w-[300px] h-[300px] bg-blue-600/15 blur-[120px] rounded-full pointer-events-none" />
+
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
-          <div className="max-w-3xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 font-bold text-xs mb-6 shadow-sm">
-              <Sparkles className="w-4 h-4 text-amber-500" />
-              Location-Based Brand × Creator Collaboration Platform
+          <div className="max-w-4xl mx-auto text-center">
+            {/* Pill Badge */}
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/25 text-purple-300 font-semibold text-xs mb-8 shadow-inner">
+              <Compass className="w-4 h-4 text-purple-400" />
+              Hyperlocal Creator-Brand Collaboration Platform
             </div>
 
-            <h1 className="font-heading text-4xl sm:text-6xl font-extrabold tracking-tight mb-6 leading-tight">
-              Where <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Local Brands</span> Meet <span className="bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">Creators</span>
+            <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight leading-[1.1] mb-8">
+              Where <span className="bg-gradient-to-r from-blue-400 via-indigo-400 to-cyan-300 bg-clip-text text-transparent">Local Brands</span> Meet{' '}
+              <span className="bg-gradient-to-r from-purple-400 via-pink-400 to-rose-400 bg-clip-text text-transparent">Creators</span>.
             </h1>
 
-            <p className="text-base sm:text-xl text-slate-600 dark:text-slate-400 leading-relaxed mb-8">
-              Discover nearby campaigns, collaborate with authentic creators, and release payments with Escrow protection. Build authentic connections right in your neighborhood.
+            <p className="text-lg sm:text-xl text-slate-300 leading-relaxed mb-10 max-w-2xl mx-auto font-normal">
+              Discover nearby collaboration opportunities, connect with the right creators, and turn local influence into real business growth.
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
               <Link
-                to="/brand/register"
-                className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-sm shadow-xl shadow-blue-500/25 flex items-center justify-center gap-2 group transition-all"
+                to="/creator/register"
+                className="w-full sm:w-auto px-8 py-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-sm shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 group transition-all"
               >
-                <Building2 className="w-5 h-5" /> I'm a Brand — Launch Brief
+                <Users className="w-4 h-4" /> Join as Creator
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </Link>
               <Link
-                to="/creator/register"
-                className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-sm shadow-xl shadow-purple-500/25 flex items-center justify-center gap-2 group transition-all"
+                to="/brand/register"
+                className="w-full sm:w-auto px-8 py-4 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-100 font-bold text-sm shadow-lg flex items-center justify-center gap-2 group transition-all"
               >
-                <Users className="w-5 h-5" /> I'm a Creator — Get Paid
+                <Building2 className="w-4 h-4 text-blue-400" /> Join as Brand
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </Link>
             </div>
 
             {/* Trust Markers Bar */}
-            <div className="pt-8 border-t border-slate-200 dark:border-slate-800 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-semibold text-slate-500">
-              <div className="flex items-center justify-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-500" /> Escrow Fund Locking
+            <div className="pt-8 border-t border-slate-800/80 grid grid-cols-2 md:grid-cols-4 gap-6 text-xs font-semibold text-slate-400">
+              <div className="flex items-center justify-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" /> Escrow Fund Protection
               </div>
-              <div className="flex items-center justify-center gap-1.5">
-                <MapPin className="w-4 h-4 text-blue-500" /> Location Discovery
+              <div className="flex items-center justify-center gap-2">
+                <MapPin className="w-4 h-4 text-blue-400" /> Haversine Local Radius
               </div>
-              <div className="flex items-center justify-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-purple-500" /> Verified Accounts
+              <div className="flex items-center justify-center gap-2">
+                <Instagram className="w-4 h-4 text-pink-400" /> Official Meta Graph API
               </div>
-              <div className="flex items-center justify-center gap-1.5">
-                <Zap className="w-4 h-4 text-amber-500" /> Direct Messaging
+              <div className="flex items-center justify-center gap-2">
+                <Bot className="w-4 h-4 text-purple-400" /> Grounded AI Score
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Featured Demo Campaign Section (CCD Indiranagar) */}
-      <section className="py-16 bg-white dark:bg-slate-900 border-y border-slate-200 dark:border-slate-800 transition-colors">
+      {/* Interactive Ecosystem Visual */}
+      <section className="py-12 bg-slate-900/50 border-y border-slate-800/80">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row md:items-end justify-between mb-10">
-            <div>
-              <div className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-1">
-                Featured Live Briefs
-              </div>
-              <h2 className="font-heading text-2xl md:text-3xl font-extrabold">Explore Active Campaigns Near You</h2>
+          <div className="bg-gradient-to-b from-slate-900 to-slate-950 p-8 sm:p-12 rounded-3xl border border-slate-800 shadow-2xl relative overflow-hidden">
+            <div className="absolute -right-16 -bottom-16 w-64 h-64 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="text-center max-w-2xl mx-auto mb-12">
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-white mb-3">
+                The Hyperlocal Collaboration Engine
+              </h2>
+              <p className="text-slate-400 text-sm">
+                Seamless matching based on real proximity, genuine engagement, and transparent escrow execution.
+              </p>
             </div>
-            <Link
-              to="/explore"
-              className="mt-4 md:mt-0 font-bold text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-            >
-              View All 10+ Campaigns <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-center">
+              {/* Brand Card */}
+              <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-lg">
+                <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mb-4">
+                  <Building2 className="w-6 h-6" />
+                </div>
+                <h3 className="font-bold text-white text-lg mb-1">Local Brand Briefs</h3>
+                <p className="text-slate-400 text-xs mb-4">
+                  Cafes, gyms, salons, and retail outlets launch targeted briefs with defined radii and rewards.
+                </p>
+                <div className="inline-flex items-center gap-1.5 text-xs text-blue-400 font-semibold">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Escrow Locked Budgets
+                </div>
+              </div>
+
+              {/* Match Hub */}
+              <div className="bg-gradient-to-b from-purple-950/60 to-slate-950 p-6 rounded-2xl border border-purple-500/30 text-center relative shadow-xl">
+                <div className="w-14 h-14 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 mx-auto flex items-center justify-center text-white mb-4 shadow-lg shadow-purple-600/30">
+                  <HeartHandshake className="w-7 h-7" />
+                </div>
+                <div className="text-xs font-extrabold uppercase tracking-wider text-purple-400 mb-1">Smart Engine</div>
+                <h3 className="font-black text-white text-xl mb-2">91% Match Score</h3>
+                <p className="text-slate-300 text-xs mb-4">
+                  Haversine distance + verified audience + niche fit score creators without guesswork.
+                </p>
+                <div className="inline-block px-3 py-1 bg-purple-500/10 text-purple-300 border border-purple-500/20 rounded-full text-[11px] font-bold">
+                  📍 2.4 km from target store
+                </div>
+              </div>
+
+              {/* Creator Card */}
+              <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-lg">
+                <div className="w-12 h-12 rounded-xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center text-pink-400 mb-4">
+                  <Instagram className="w-6 h-6" />
+                </div>
+                <h3 className="font-bold text-white text-lg mb-1">Verified Creators</h3>
+                <p className="text-slate-400 text-xs mb-4">
+                  Instagram accounts synced via official Meta APIs. No scraping, no passwords, no fake stats.
+                </p>
+                <div className="inline-flex items-center gap-1.5 text-xs text-pink-400 font-semibold">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Real Engagement Provenance
+                </div>
+              </div>
+            </div>
           </div>
+        </div>
+      </section>
 
+      {/* Featured Active Campaigns */}
+      <section className="py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-12">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-2">
+              Live Brand Briefs
+            </div>
+            <h2 className="text-3xl font-black text-white">Active Neighborhood Opportunities</h2>
+          </div>
+          <Link
+            to="/creator/register"
+            className="mt-4 sm:mt-0 font-bold text-sm text-purple-400 hover:text-purple-300 flex items-center gap-1.5 group"
+          >
+            Explore All Campaigns <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </Link>
+        </div>
+
+        {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {featuredCampaigns.length > 0 ? (
-              featuredCampaigns.map(camp => (
-                <div
-                  key={camp.id}
-                  onClick={() => navigate(`/campaigns/${camp.id}`)}
-                  className="group bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700/80 p-5 hover:border-blue-500 hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={camp.brand_logo || 'https://images.unsplash.com/photo-1559925393-8be0ec4767c8?w=300&auto=format&fit=crop&q=80'}
-                          alt={camp.brand_name}
-                          className="w-10 h-10 rounded-xl object-cover border border-slate-200 dark:border-slate-700"
-                        />
-                        <div>
-                          <div className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-1">
-                            {camp.brand_name}
-                            <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-500/20" />
-                          </div>
-                          <div className="text-[11px] text-slate-500 flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-slate-400" /> {camp.location_name}
-                          </div>
-                        </div>
-                      </div>
-                      <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-extrabold text-xs">
-                        ₹{camp.reward_per_creator.toLocaleString()}
-                      </span>
+            {[1, 2, 3].map(i => (
+              <div key={i} className="h-64 rounded-2xl bg-slate-900/60 animate-pulse border border-slate-800" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {featuredCampaigns.map(camp => (
+              <div
+                key={camp.id}
+                className="bg-slate-900/70 rounded-2xl border border-slate-800 overflow-hidden hover:border-purple-500/40 transition-all group flex flex-col justify-between"
+              >
+                <div>
+                  <div className="relative h-44 overflow-hidden bg-slate-800">
+                    <img
+                      src={camp.image_url}
+                      alt={camp.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                    <div className="absolute top-3 left-3 bg-slate-950/80 backdrop-blur-md px-2.5 py-1 rounded-full text-[11px] font-bold text-purple-300 border border-purple-500/20">
+                      {camp.category}
                     </div>
+                    <div className="absolute bottom-3 right-3 bg-slate-950/90 backdrop-blur-md px-3 py-1 rounded-xl text-sm font-black text-emerald-400 border border-emerald-500/30">
+                      ₹{camp.reward_per_creator?.toLocaleString()}
+                    </div>
+                  </div>
 
-                    <h3 className="font-heading font-extrabold text-base mb-2 group-hover:text-blue-600 transition-colors">
+                  <div className="p-5">
+                    <div className="flex items-center gap-2.5 mb-2">
+                      <img src={camp.brand_logo} alt={camp.brand_name} className="w-5 h-5 rounded-full object-cover" />
+                      <span className="text-xs font-semibold text-slate-300">{camp.brand_name}</span>
+                    </div>
+                    <h3 className="font-bold text-white text-base mb-2 group-hover:text-purple-300 transition-colors line-clamp-1">
                       {camp.title}
                     </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mb-4 leading-relaxed">
+                    <p className="text-slate-400 text-xs line-clamp-2 mb-4 leading-relaxed">
                       {camp.description}
                     </p>
                   </div>
-
-                  <div className="pt-4 border-t border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-500 flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-slate-400" /> Deadline in 15 days
-                    </span>
-                    <span className="font-bold text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
-                      View Brief <ArrowRight className="w-3.5 h-3.5" />
-                    </span>
-                  </div>
-                </div>
-              ))
-            ) : (
-              // Hardcoded Demo CCD Brief
-              <div
-                onClick={() => navigate('/explore')}
-                className="group bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700/80 p-5 hover:border-blue-500 hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="flex items-center gap-3">
-                      <img
-                        src="https://images.unsplash.com/photo-1559925393-8be0ec4767c8?w=300&auto=format&fit=crop&q=80"
-                        alt="CCD"
-                        className="w-10 h-10 rounded-xl object-cover border border-slate-200 dark:border-slate-700"
-                      />
-                      <div>
-                        <div className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-1">
-                          Cafe Coffee Day (CCD)
-                          <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
-                        </div>
-                        <div className="text-[11px] text-slate-500 flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-slate-400" /> Indiranagar, Bengaluru
-                        </div>
-                      </div>
-                    </div>
-                    <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-extrabold text-xs">
-                      ₹2,500
-                    </span>
-                  </div>
-
-                  <h3 className="font-heading font-extrabold text-base mb-2 group-hover:text-blue-600 transition-colors">
-                    CCD Indiranagar Creator Promotion
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mb-4 leading-relaxed">
-                    CCD is launching a revamped lounge experience at our Indiranagar outlet and looking for local creators to produce authentic Instagram Reels.
-                  </p>
                 </div>
 
-                <div className="pt-4 border-t border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between text-xs">
-                  <span className="font-semibold text-slate-500 flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5 text-slate-400" /> 10 Creators Needed
-                  </span>
-                  <span className="font-bold text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
-                    Apply Brief <ArrowRight className="w-3.5 h-3.5" />
-                  </span>
+                <div className="p-5 pt-0 border-t border-slate-800/60 flex items-center justify-between text-xs text-slate-400">
+                  <div className="flex items-center gap-1 text-blue-400 font-semibold">
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>{camp.location_name || camp.city}</span>
+                  </div>
+                  <Link
+                    to="/creator/register"
+                    className="font-bold text-purple-400 hover:text-purple-300 flex items-center gap-1"
+                  >
+                    Apply Now <ArrowRight className="w-3 h-3" />
+                  </Link>
                 </div>
               </div>
-            )}
+            ))}
           </div>
-        </div>
+        )}
       </section>
 
       {/* How It Works Section */}
-      <section className="py-20">
+      <section className="py-20 bg-slate-900/40 border-y border-slate-800/80">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <h2 className="font-heading text-3xl font-extrabold mb-4">How CreatorHub Works</h2>
-            <p className="text-sm text-slate-500">End-to-end promotion management with built-in location radius search & escrow security.</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-            {/* For Brands */}
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
-                  <Building2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-heading font-extrabold text-xl">For Brands & Outlets</h3>
-                  <p className="text-xs text-slate-500">Hire authentic local creators near your business</p>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                <div className="flex gap-4">
-                  <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center font-extrabold text-xs shrink-0">1</div>
-                  <div>
-                    <h4 className="font-bold text-sm mb-1">Create Campaign Brief</h4>
-                    <p className="text-xs text-slate-500">Set location (e.g. CCD Indiranagar), search radius (1-25km), reward payout & content requirements.</p>
-                  </div>
-                </div>
-
-                <div className="flex gap-4">
-                  <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center font-extrabold text-xs shrink-0">2</div>
-                  <div>
-                    <h4 className="font-bold text-sm mb-1">Review Creator Applications</h4>
-                    <p className="text-xs text-slate-500">Compare creator follower stats, engagement rate, location distance & pitch ideas. Accept the best candidates.</p>
-                  </div>
-                </div>
-
-                <div className="flex gap-4">
-                  <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center font-extrabold text-xs shrink-0">3</div>
-                  <div>
-                    <h4 className="font-bold text-sm mb-1">Approve & Release Payment</h4>
-                    <p className="text-xs text-slate-500">Review content proof URL & screenshot. When approved, release Escrow payment with 1 click.</p>
-                  </div>
-                </div>
-              </div>
+          <div className="text-center max-w-2xl mx-auto mb-12">
+            <div className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-2">
+              Workflow Transparency
             </div>
+            <h2 className="text-3xl font-black text-white mb-6">How CreaterHub Works</h2>
 
-            {/* For Creators */}
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-2xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
-                  <Users className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-heading font-extrabold text-xl">For Creators & Influencers</h3>
-                  <p className="text-xs text-slate-500">Monetize your audience with nearby local sponsorships</p>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                <div className="flex gap-4">
-                  <div className="w-7 h-7 rounded-full bg-purple-600 text-white flex items-center justify-center font-extrabold text-xs shrink-0">1</div>
-                  <div>
-                    <h4 className="font-bold text-sm mb-1">Discover Nearby Briefs</h4>
-                    <p className="text-xs text-slate-500">Filter campaigns by distance, category (Food, Tech, Fashion), minimum reward & social platform.</p>
-                  </div>
-                </div>
-
-                <div className="flex gap-4">
-                  <div className="w-7 h-7 rounded-full bg-purple-600 text-white flex items-center justify-center font-extrabold text-xs shrink-0">2</div>
-                  <div>
-                    <h4 className="font-bold text-sm mb-1">Submit Your Pitch</h4>
-                    <p className="text-xs text-slate-500">Explain why you are the best fit, share your proposed Reel concept, and submit your application.</p>
-                  </div>
-                </div>
-
-                <div className="flex gap-4">
-                  <div className="w-7 h-7 rounded-full bg-purple-600 text-white flex items-center justify-center font-extrabold text-xs shrink-0">3</div>
-                  <div>
-                    <h4 className="font-bold text-sm mb-1">Create & Receive Payout</h4>
-                    <p className="text-xs text-slate-500">Film your Reel/Post, submit proof, and get paid directly to your account with Escrow protection.</p>
-                  </div>
-                </div>
-              </div>
+            {/* Toggle Tabs */}
+            <div className="inline-flex p-1 bg-slate-900 rounded-2xl border border-slate-800">
+              <button
+                onClick={() => setActiveTab('creator')}
+                className={`px-6 py-2.5 rounded-xl font-bold text-xs transition-all ${
+                  activeTab === 'creator'
+                    ? 'bg-purple-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                For Creators
+              </button>
+              <button
+                onClick={() => setActiveTab('brand')}
+                className={`px-6 py-2.5 rounded-xl font-bold text-xs transition-all ${
+                  activeTab === 'brand'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                For Brands
+              </button>
             </div>
           </div>
+
+          {activeTab === 'creator' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[
+                { step: '01', title: 'Create Your Profile', desc: 'Sign up with your bio, preferred categories, rate card, and geographic neighborhood.' },
+                { step: '02', title: 'Connect Instagram', desc: 'Securely link via official Meta OAuth. No scraping, no passwords, only live verified metrics.' },
+                { step: '03', title: 'Discover Nearby Campaigns', desc: 'Filter active brand briefs by distance (1km, 5km, 10km, 25km) and match suitability.' },
+                { step: '04', title: 'Apply with Custom Pitch', desc: 'Submit tailored collaboration ideas and availability directly to local business owners.' },
+                { step: '05', title: 'Collaborate & Deliver', desc: 'Produce required Reels, Stories, or Carousels and upload live post proof for approval.' },
+                { step: '06', title: 'Get Paid & Build Rating', desc: 'Receive protected escrow payout, record verifiable campaign history, and collect reviews.' }
+              ].map(s => (
+                <div key={s.step} className="bg-slate-950 p-6 rounded-2xl border border-slate-800 hover:border-purple-500/30 transition-all">
+                  <div className="text-2xl font-black text-purple-400 mb-2 font-mono">{s.step}</div>
+                  <h3 className="font-bold text-white text-base mb-1.5">{s.title}</h3>
+                  <p className="text-slate-400 text-xs leading-relaxed">{s.desc}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[
+                { step: '01', title: 'Create Brand Profile', desc: 'Register your retail store, cafe, studio, or service business with exact outlet coordinates.' },
+                { step: '02', title: 'Publish a Brief', desc: 'Define budget, deliverables (Reels/Stories), target radius, and creator follower brackets.' },
+                { step: '03', title: 'Discover Local Creators', desc: 'Review nearby creators ranked by distance, niche overlap, and calibrated Match Score.' },
+                { step: '04', title: 'Review Applications', desc: 'Inspect verified Instagram engagement rates and AI creator analyses before selecting.' },
+                { step: '05', title: 'Approve & Release Funds', desc: 'Verify submitted live post links and proof before releasing locked escrow payments.' },
+                { step: '06', title: 'Track Collaboration ROI', desc: 'Build lasting partnerships, rate creators, and expand neighborhood customer reach.' }
+              ].map(s => (
+                <div key={s.step} className="bg-slate-950 p-6 rounded-2xl border border-slate-800 hover:border-blue-500/30 transition-all">
+                  <div className="text-2xl font-black text-blue-400 mb-2 font-mono">{s.step}</div>
+                  <h3 className="font-bold text-white text-base mb-1.5">{s.title}</h3>
+                  <p className="text-slate-400 text-xs leading-relaxed">{s.desc}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-16 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
-        <div className="max-w-4xl mx-auto px-4 text-center">
-          <h2 className="font-heading text-3xl font-extrabold mb-4">Ready to Launch Your Next Local Campaign?</h2>
-          <p className="text-base text-blue-100 mb-8 max-w-xl mx-auto">
-            Join hundreds of local businesses and creators collaborating seamlessly on CreatorHub.
+      {/* Feature Grid */}
+      <section className="py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center max-w-2xl mx-auto mb-16">
+          <div className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-2">
+            Platform Capabilities
+          </div>
+          <h2 className="text-3xl font-black text-white mb-3">Engineered for Trust & Results</h2>
+          <p className="text-slate-400 text-sm">
+            Everything local businesses and digital creators need for transparent, seamless partnerships.
           </p>
-          <div className="flex justify-center gap-4">
-            <Link
-              to="/brand/register"
-              className="px-6 py-3.5 rounded-xl bg-white text-blue-600 font-extrabold text-sm hover:bg-slate-100 shadow-lg transition-colors"
-            >
-              Post a CampaignBrief
-            </Link>
-            <Link
-              to="/creator/register"
-              className="px-6 py-3.5 rounded-xl bg-purple-900/60 hover:bg-purple-900 text-white font-extrabold text-sm border border-white/20 transition-colors"
-            >
-              Apply as Creator
-            </Link>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[
+            { icon: Instagram, color: 'text-pink-400', title: 'Official Meta Analytics', desc: 'Verified profile stats, media lists, and real engagement numbers.' },
+            { icon: Bot, color: 'text-purple-400', title: 'Grounded AI Analysis', desc: 'Structured creator scores, strengths, and actionable content recommendations.' },
+            { icon: Compass, color: 'text-blue-400', title: 'Haversine Radius Match', desc: 'Precise geospatial calculations prioritizing nearby stores and talent.' },
+            { icon: DollarSign, color: 'text-emerald-400', title: 'Escrow Protection', desc: 'Transparent payment locking upon acceptance and release upon verification.' },
+            { icon: BarChart3, color: 'text-amber-400', title: 'Performance Tracking', desc: 'Track reach, active applications, and completed deliverables in real time.' },
+            { icon: Zap, color: 'text-cyan-400', title: 'In-App Direct Chat', desc: 'Collaborate and coordinate deliverables with authenticated messaging.' },
+            { icon: Award, color: 'text-rose-400', title: 'Mutual Reviews', desc: 'Build verified reputation with post-collaboration star ratings.' },
+            { icon: ShieldCheck, color: 'text-indigo-400', title: 'Zero Fake Data', desc: 'Strict data provenance labels and zero simulated benchmark guessers.' }
+          ].map((f, idx) => {
+            const Icon = f.icon;
+            return (
+              <div key={idx} className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800 hover:border-slate-700 transition-all">
+                <div className={`w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center mb-4 ${f.color}`}>
+                  <Icon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-white text-base mb-1.5">{f.title}</h3>
+                <p className="text-slate-400 text-xs leading-relaxed">{f.desc}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Final CTA Section */}
+      <section className="py-20 relative overflow-hidden">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="bg-gradient-to-r from-purple-900/60 via-indigo-950 to-purple-900/60 p-10 sm:p-16 rounded-3xl border border-purple-500/30 text-center relative overflow-hidden shadow-2xl">
+            <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight mb-4">
+              Ready to Grow Together?
+            </h2>
+            <p className="text-slate-300 text-base max-w-xl mx-auto mb-8">
+              Join hundreds of local brands and authentic creators building real local influence and revenue today.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <Link
+                to="/creator/register"
+                className="w-full sm:w-auto px-8 py-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-sm shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2"
+              >
+                I'm a Creator
+              </Link>
+              <Link
+                to="/brand/register"
+                className="w-full sm:w-auto px-8 py-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-xl shadow-blue-600/30 flex items-center justify-center gap-2"
+              >
+                I'm a Brand
+              </Link>
+            </div>
           </div>
         </div>
       </section>

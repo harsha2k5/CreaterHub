@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/layout/Navbar';
 import { Footer } from './components/layout/Footer';
 import { LandingPage } from './pages/LandingPage';
+import { AuthRoleSelectPage } from './pages/AuthRoleSelectPage';
+import { CreatorCampaignFeedPage } from './pages/CreatorCampaignFeedPage';
 import { BrandAuthPage } from './pages/BrandAuthPage';
 import { CreatorAuthPage } from './pages/CreatorAuthPage';
 import { AdminAuthPage } from './pages/AdminAuthPage';
@@ -19,28 +21,53 @@ import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import './index.css';
 
+function DashboardRedirect() {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/choose-role" replace />;
+  if (user.role === 'brand') return <Navigate to="/brand/dashboard" replace />;
+  if (user.role === 'admin') return <Navigate to="/admin/dashboard" replace />;
+  return <Navigate to="/creator/feed" replace />;
+}
+
 function MainLayout() {
   const { toasts } = useAuth();
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
+    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-purple-500 selection:text-white transition-colors">
       <Navbar />
 
       <main className="flex-1">
         <Routes>
           <Route path="/" element={<LandingPage />} />
-          <Route path="/explore" element={<ExploreCampaignsPage />} />
+          <Route path="/choose-role" element={<AuthRoleSelectPage />} />
+          <Route path="/creator/feed" element={<CreatorCampaignFeedPage />} />
+          <Route path="/explore" element={<CreatorCampaignFeedPage />} />
           <Route path="/pitch-creators" element={<DirectPitchPage />} />
           <Route path="/campaigns/:id" element={<CampaignDetailPage />} />
+          
+          {/* Auth Routes */}
           <Route path="/brand/login" element={<BrandAuthPage />} />
           <Route path="/brand/register" element={<BrandAuthPage />} />
           <Route path="/creator/login" element={<CreatorAuthPage />} />
           <Route path="/creator/register" element={<CreatorAuthPage />} />
           <Route path="/admin/login" element={<AdminAuthPage />} />
+
+          {/* Dashboards */}
           <Route path="/brand/dashboard" element={<BrandDashboard />} />
+          <Route path="/brand/collaborations" element={<BrandDashboard />} />
+          <Route path="/brand/applications" element={<BrandDashboard />} />
           <Route path="/creator/dashboard" element={<CreatorDashboard />} />
+          <Route path="/creator/collaborations" element={<CreatorDashboard />} />
+          <Route path="/creator/earnings" element={<CreatorDashboard />} />
+          <Route path="/dashboard" element={<DashboardRedirect />} />
+          <Route path="/creator-dashboard" element={<Navigate to="/creator/feed" replace />} />
+          <Route path="/brand-dashboard" element={<Navigate to="/brand/dashboard" replace />} />
+
+          {/* Collaborations, Messages, Profiles */}
           <Route path="/collaborations" element={<CollaborationsPage />} />
           <Route path="/messages" element={<MessagesPage />} />
+          <Route path="/creator/messages" element={<MessagesPage />} />
           <Route path="/creators/:id" element={<CreatorProfilePage />} />
           <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -54,7 +81,7 @@ function MainLayout() {
         {toasts.map(toast => (
           <div
             key={toast.id}
-            className="pointer-events-auto bg-slate-900 dark:bg-slate-800 text-white border border-slate-700 shadow-2xl px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2.5 animate-bounce-short"
+            className="pointer-events-auto bg-slate-900 text-white border border-slate-700 shadow-2xl px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2.5 animate-bounce-short"
           >
             {toast.type === 'error' ? (
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />

@@ -5,7 +5,6 @@ const getBaseUrl = () => {
 };
 
 const API_BASE_URL = getBaseUrl();
-console.log(`[API Config] Base API URL: "${API_BASE_URL}" | VITE_API_URL: "${import.meta.env.VITE_API_URL || 'NOT_SET'}"`);
 
 function getAuthHeaders() {
   const token = sessionStorage.getItem('token') || localStorage.getItem('token');
@@ -33,33 +32,27 @@ async function request(endpoint: string, options: RequestInit = {}) {
     if (text && text.trim().length > 0) {
       try {
         data = JSON.parse(text);
-      } catch (jsonErr) {
-        const isNotSet = !import.meta.env.VITE_API_URL;
-        const snippet = text.slice(0, 150).replace(/\s+/g, ' ');
-        if (isNotSet) {
-          throw new Error(`API Config Error: VITE_API_URL is NOT set on Netlify! Request went to "${url}" and received HTML (Status ${response.status}). Set VITE_API_URL in Netlify Site Settings and Trigger a New Deploy.`);
-        }
-        throw new Error(`Backend Error (${response.status}): Fetching "${url}" returned non-JSON content: "${snippet}...". Verify backend URL and status.`);
+      } catch {
+        throw new Error(`Server returned non-JSON response (${response.status}) from "${url}".`);
       }
     } else {
       if (!response.ok) {
-        throw new Error(`Server returned empty response (${response.status}) from "${url}". Ensure backend API is running.`);
+        throw new Error(`Server returned empty response (${response.status}) from "${url}".`);
       }
     }
 
     if (!response.ok || (data && data.success === false)) {
-      throw new Error(data?.error || `API request to "${url}" failed with status ${response.status}`);
+      throw new Error(data?.error || `Request failed with status ${response.status}`);
     }
 
     return data;
   } catch (err: any) {
     if (err.name === 'TypeError' && (err.message === 'Failed to fetch' || err.message.includes('fetch'))) {
-      throw new Error(`Network Error: Unreachable backend at "${url}". Verify VITE_API_URL or check if backend service is running.`);
+      throw new Error(`Unable to reach backend API at "${url}". Please ensure server is running.`);
     }
     throw err;
   }
 }
-
 
 export const api = {
   // Auth
@@ -67,59 +60,86 @@ export const api = {
   login: (payload: any) => request('/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
   getMe: () => request('/auth/me'),
 
-  // Campaigns
+  // Campaigns & Discovery
   getCampaigns: (params: Record<string, string> = {}) => {
     const query = new URLSearchParams(params).toString();
     return request(`/campaigns${query ? `?${query}` : ''}`);
   },
   getCampaignById: (id: string) => request(`/campaigns/${id}`),
   createCampaign: (payload: any) => request('/campaigns', { method: 'POST', body: JSON.stringify(payload) }),
-  applyCampaign: (id: string, payload: any) => request(`/campaigns/${id}/apply`, { method: 'POST', body: JSON.stringify(payload) }),
+  updateCampaignStatus: (id: string, status: string) =>
+    request(`/campaigns/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  getCampaignMatches: (campaignId: string) => request(`/campaigns/${campaignId}/matches`),
 
   // Applications
-  getApplications: () => request('/applications'),
-  updateApplicationStatus: (id: string, status: 'accepted' | 'rejected') =>
-    request(`/applications/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  applyCampaign: (payload: any) => request('/applications/apply', { method: 'POST', body: JSON.stringify(payload) }),
+  getApplications: (params: Record<string, string> = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/applications${query ? `?${query}` : ''}`);
+  },
+  updateApplicationStatus: (id: string, status: 'ACCEPTED' | 'SHORTLISTED' | 'REJECTED') =>
+    request(`/applications/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
 
-  // Collaborations
+  // Collaborations & Deliverables
   getCollaborations: () => request('/collaborations'),
   getCollaborationById: (id: string) => request(`/collaborations/${id}`),
-  submitContentProof: (id: string, payload: any) => request(`/collaborations/${id}/submit`, { method: 'POST', body: JSON.stringify(payload) }),
-  reviewContentProof: (id: string, payload: { action: 'approve' | 'revision'; feedback?: string }) =>
-    request(`/collaborations/${id}/review`, { method: 'PUT', body: JSON.stringify(payload) }),
-  releasePayment: (id: string) => request(`/collaborations/${id}/release-payment`, { method: 'POST' }),
+  submitDeliverableProof: (id: string, payload: any) =>
+    request(`/collaborations/${id}/submit`, { method: 'POST', body: JSON.stringify(payload) }),
+  reviewDeliverableProof: (id: string, payload: { action: 'APPROVE' | 'REVISION'; feedback?: string }) =>
+    request(`/collaborations/${id}/review`, { method: 'POST', body: JSON.stringify(payload) }),
 
-  // Profiles
+  // Creators & Brands
   getCreators: (params: Record<string, string> = {}) => {
     const query = new URLSearchParams(params).toString();
     return request(`/creators${query ? `?${query}` : ''}`);
   },
   getCreatorById: (id: string) => request(`/creators/${id}`),
+  updateCreatorProfile: (payload: any) => request('/creators/profile', { method: 'POST', body: JSON.stringify(payload) }),
   sendDirectPitch: (creatorId: string, payload: any) =>
     request(`/creators/${creatorId}/pitch`, { method: 'POST', body: JSON.stringify(payload) }),
-  analyzeCreatorProfile: (socialLink: string) =>
-    request('/creators/analyze-profile', { method: 'POST', body: JSON.stringify({ social_link: socialLink }) }),
-  syncCreatorLiveData: (creatorId: string) =>
-    request(`/creators/${creatorId}/sync-live-data`, { method: 'POST' }),
   getBrands: () => request('/brands'),
   getBrandById: (id: string) => request(`/brands/${id}`),
+  getBrandAnalytics: () => request('/brands/analytics'),
+  updateBrandProfile: (payload: any) => request('/brands/profile', { method: 'PUT', body: JSON.stringify(payload) }),
 
-  // Messaging & Notifications
+  // Official Instagram Graph API (Zero Fake Data)
+  getInstagramConnectUrl: () => request('/instagram/connect-url'),
+  getInstagramStatus: () => request('/instagram/status'),
+  handleInstagramCallback: (code: string) => request('/instagram/callback', { method: 'POST', body: JSON.stringify({ code }) }),
+  syncInstagramAnalytics: () => request('/instagram/sync', { method: 'POST' }),
+  disconnectInstagram: () => request('/instagram/disconnect', { method: 'POST' }),
+  getInstagramAnalytics: () => request('/instagram/analytics'),
+  getInstagramConfigStatus: () => request('/instagram/config-status'),
+  connectInstagramSandbox: (payload?: any) => request('/instagram/sandbox-connect', { method: 'POST', body: JSON.stringify(payload || {}) }),
+
+  // AI Creator Analysis
+  triggerAIAnalysis: () => request('/ai/analyze-creator', { method: 'POST' }),
+  getCreatorAIAnalysis: (creatorId: string) => request(`/ai/creator-analysis/${creatorId}`),
+  generateCampaignBriefAI: (payload: { prompt: string; category?: string; location?: string; budget?: number }) =>
+    request('/ai/generate-campaign-brief', { method: 'POST', body: JSON.stringify(payload) }),
+
+  // Payments & Escrow
+  getCreatorEarnings: () => request('/payments/earnings'),
+  releaseEscrowPayment: (collabId: string) => request(`/payments/release/${collabId}`, { method: 'POST' }),
+
+  // Messaging & Conversations
   getConversations: () => request('/messages/conversations'),
   getMessages: (conversationId: string) => request(`/messages/${conversationId}`),
   sendMessage: (conversationId: string, payload: { text: string; attachment_url?: string }) =>
     request(`/messages/${conversationId}`, { method: 'POST', body: JSON.stringify(payload) }),
+
+  // Reviews & Notifications
+  submitReview: (payload: any) => request('/reviews', { method: 'POST', body: JSON.stringify(payload) }),
+  getCollaborationReviews: (collabId: string) => request(`/reviews/collaboration/${collabId}`),
   getNotifications: () => request('/notifications'),
   markNotificationsRead: () => request('/notifications/read-all', { method: 'PUT' }),
-
-  // Reviews & Reports
-  submitReview: (payload: any) => request('/reviews', { method: 'POST', body: JSON.stringify(payload) }),
-  submitReport: (payload: any) => request('/reports', { method: 'POST', body: JSON.stringify(payload) }),
 
   // Admin
   getAdminStats: () => request('/admin/stats'),
   getAdminUsers: () => request('/admin/users'),
-  getAdminCollaborations: () => request('/admin/collaborations'),
-  verifyUser: (userId: string) => request(`/admin/verify-user/${userId}`, { method: 'PUT' }),
-  getAdminReports: () => request('/admin/reports')
+  suspendUser: (userId: string) => request(`/admin/users/${userId}/suspend`, { method: 'PUT' }),
+  verifyCreatorBadge: (creatorId: string) => request(`/admin/creators/${creatorId}/verify`, { method: 'PUT' }),
+  getAdminCampaigns: () => request('/admin/campaigns'),
+  moderateCampaign: (id: string, status: string) => request(`/admin/campaigns/${id}/moderate`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  getAdminInstagramHealth: () => request('/admin/instagram-health')
 };

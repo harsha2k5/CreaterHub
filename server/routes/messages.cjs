@@ -1,136 +1,146 @@
 const express = require('express');
 const router = express.Router();
-const { Conversation, Message, Brand, Creator, Collaboration, Campaign } = require('../models/index.cjs');
+const { query, queryOne, run } = require('../db/database.cjs');
 const { authenticateToken } = require('../middleware/auth.cjs');
 
-// GET /api/messages/conversations
-router.get('/conversations', authenticateToken, async (req, res) => {
+function generateId(prefix = 'msg') {
+    return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+}
+
+// GET /api/messages/conversations - List conversations for user
+router.get('/conversations', authenticateToken, (req, res) => {
     try {
-        let conversations = [];
+        let sql = '';
+        let params = [];
 
-        if (req.user.role === 'brand') {
-            const brand = await Brand.findOne({ user_id: req.user.id }).lean();
-            if (!brand) return res.json({ success: true, conversations: [] });
+        if (req.user.role === 'creator') {
+            const creator = queryOne('SELECT id FROM creator_profiles WHERE user_id = ?', [req.user.id]);
+            if (!creator) return res.status(404).json({ success: false, error: 'Creator not found.' });
 
-            const rawConvs = await Conversation.find({ brand_id: brand.id }).sort({ updated_at: -1 }).lean();
+            sql = `
+                SELECT conv.*, b.company_name as other_name, b.logo_url as other_avatar,
+                       b.category as other_subtitle,
+                       (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = conv.id AND m.sender_id != ? AND m.read_status = 0) as unread_count
+                FROM conversations conv
+                JOIN brand_profiles b ON conv.brand_id = b.id
+                WHERE conv.creator_id = ?
+                ORDER BY conv.updated_at DESC
+            `;
+            params = [req.user.id, creator.id];
+        } else if (req.user.role === 'brand') {
+            const brand = queryOne('SELECT id FROM brand_profiles WHERE user_id = ?', [req.user.id]);
+            if (!brand) return res.status(404).json({ success: false, error: 'Brand not found.' });
 
-            const creatorIds = [...new Set(rawConvs.map(c => c.creator_id))];
-            const collabIds = rawConvs.map(c => c.collaboration_id).filter(Boolean);
-
-            const [creators, collabs] = await Promise.all([
-                Creator.find({ id: { $in: creatorIds } }).lean(),
-                Collaboration.find({ id: { $in: collabIds } }).lean()
-            ]);
-
-            const campaignIds = [...new Set(collabs.map(c => c.campaign_id))];
-            const campaigns = await Campaign.find({ id: { $in: campaignIds } }).lean();
-
-            const creatorMap = {}; creators.forEach(cr => creatorMap[cr.id] = cr);
-            const collabMap = {}; collabs.forEach(col => collabMap[col.id] = col);
-            const campaignMap = {}; campaigns.forEach(camp => campaignMap[camp.id] = camp);
-
-            conversations = rawConvs.map(conv => {
-                const cr = creatorMap[conv.creator_id] || {};
-                const col = collabMap[conv.collaboration_id] || {};
-                const camp = campaignMap[col.campaign_id] || {};
-
-                return {
-                    ...conv,
-                    other_party_name: cr.full_name || 'Creator',
-                    other_party_avatar: cr.avatar_url || '',
-                    other_party_handle: cr.username || '',
-                    campaign_title: camp.title || ''
-                };
-            });
-
-        } else if (req.user.role === 'creator') {
-            const creator = await Creator.findOne({ user_id: req.user.id }).lean();
-            if (!creator) return res.json({ success: true, conversations: [] });
-
-            const rawConvs = await Conversation.find({ creator_id: creator.id }).sort({ updated_at: -1 }).lean();
-
-            const brandIds = [...new Set(rawConvs.map(c => c.brand_id))];
-            const collabIds = rawConvs.map(c => c.collaboration_id).filter(Boolean);
-
-            const [brands, collabs] = await Promise.all([
-                Brand.find({ id: { $in: brandIds } }).lean(),
-                Collaboration.find({ id: { $in: collabIds } }).lean()
-            ]);
-
-            const campaignIds = [...new Set(collabs.map(c => c.campaign_id))];
-            const campaigns = await Campaign.find({ id: { $in: campaignIds } }).lean();
-
-            const brandMap = {}; brands.forEach(b => brandMap[b.id] = b);
-            const collabMap = {}; collabs.forEach(col => collabMap[col.id] = col);
-            const campaignMap = {}; campaigns.forEach(camp => campaignMap[camp.id] = camp);
-
-            conversations = rawConvs.map(conv => {
-                const b = brandMap[conv.brand_id] || {};
-                const col = collabMap[conv.collaboration_id] || {};
-                const camp = campaignMap[col.campaign_id] || {};
-
-                return {
-                    ...conv,
-                    other_party_name: b.company_name || 'Brand',
-                    other_party_avatar: b.logo_url || '',
-                    campaign_title: camp.title || ''
-                };
-            });
+            sql = `
+                SELECT conv.*, cr.full_name as other_name, cr.avatar_url as other_avatar,
+                       cr.username as other_subtitle,
+                       (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = conv.id AND m.sender_id != ? AND m.read_status = 0) as unread_count
+                FROM conversations conv
+                JOIN creator_profiles cr ON conv.creator_id = cr.id
+                WHERE conv.brand_id = ?
+                ORDER BY conv.updated_at DESC
+            `;
+            params = [req.user.id, brand.id];
+        } else {
+            return res.status(403).json({ success: false, error: 'Unauthorized.' });
         }
 
-        return res.json({ success: true, count: conversations.length, conversations });
+        const convs = query(sql, params);
+        return res.json({ success: true, conversations: convs });
     } catch (err) {
         console.error('Error fetching conversations:', err);
-        return res.status(500).json({ success: false, error: 'Failed to load chat conversations.' });
+        return res.status(500).json({ success: false, error: 'Failed to retrieve conversations.' });
     }
 });
 
-// GET /api/messages/:conversationId
-router.get('/:conversationId', authenticateToken, async (req, res) => {
+// GET /api/messages/:conversationId - Get thread messages
+router.get('/:conversationId', authenticateToken, (req, res) => {
     try {
-        const conversationId = req.params.conversationId;
-        const messages = await Message.find({ conversation_id: conversationId }).sort({ created_at: 1 }).lean();
+        const { conversationId } = req.params;
+        const conv = queryOne('SELECT * FROM conversations WHERE id = ?', [conversationId]);
+        if (!conv) return res.status(404).json({ success: false, error: 'Conversation not found.' });
 
-        // Mark unread messages as read
-        await Message.updateMany(
-            { conversation_id: conversationId, sender_id: { $ne: req.user.id } },
-            { read_status: 1 }
-        );
-
-        return res.json({ success: true, count: messages.length, messages });
-    } catch (err) {
-        return res.status(500).json({ success: false, error: 'Failed to load message thread.' });
-    }
-});
-
-// POST /api/messages/:conversationId
-router.post('/:conversationId', authenticateToken, async (req, res) => {
-    try {
-        const conversationId = req.params.conversationId;
-        const { text, attachment_url } = req.body;
-
-        if (!text && !attachment_url) {
-            return res.status(400).json({ success: false, error: 'Message text or attachment required.' });
+        // Verify authorization
+        let isAuthorized = req.user.role === 'admin';
+        if (!isAuthorized) {
+            if (req.user.role === 'creator') {
+                const creator = queryOne('SELECT id FROM creator_profiles WHERE user_id = ?', [req.user.id]);
+                isAuthorized = creator && creator.id === conv.creator_id;
+            } else if (req.user.role === 'brand') {
+                const brand = queryOne('SELECT id FROM brand_profiles WHERE user_id = ?', [req.user.id]);
+                isAuthorized = brand && brand.id === conv.brand_id;
+            }
         }
 
-        const msgId = 'msg_' + Date.now();
-        await Message.create({
-            id: msgId,
-            conversation_id: conversationId,
-            sender_id: req.user.id,
-            text: text || '',
-            attachment_url: attachment_url || '',
-            read_status: 0
-        });
+        if (!isAuthorized) {
+            return res.status(403).json({ success: false, error: 'You are not authorized to view this conversation.' });
+        }
 
-        // Update last message in conversation
-        await Conversation.updateOne(
-            { id: conversationId },
-            { last_message: text || 'Attachment sent', updated_at: new Date() }
+        // Mark incoming messages as read
+        run(
+            'UPDATE messages SET read_status = 1 WHERE conversation_id = ? AND sender_id != ?',
+            [conversationId, req.user.id]
         );
 
-        return res.status(201).json({ success: true, messageId: msgId, text, created_at: new Date().toISOString() });
+        const msgs = query(
+            'SELECT * FROM messages WHERE conversation_id = ? ORDER BY sent_at ASC',
+            [conversationId]
+        );
+
+        return res.json({ success: true, messages: msgs });
     } catch (err) {
+        console.error('Error fetching messages:', err);
+        return res.status(500).json({ success: false, error: 'Failed to retrieve messages.' });
+    }
+});
+
+// POST /api/messages/:conversationId - Send message
+router.post('/:conversationId', authenticateToken, (req, res) => {
+    try {
+        const { conversationId } = req.params;
+        const { text, attachment_url } = req.body;
+
+        if (!text || text.trim().length === 0) {
+            return res.status(400).json({ success: false, error: 'Message text cannot be empty.' });
+        }
+
+        const conv = queryOne('SELECT * FROM conversations WHERE id = ?', [conversationId]);
+        if (!conv) return res.status(404).json({ success: false, error: 'Conversation not found.' });
+
+        // Authorization check
+        let isAuthorized = req.user.role === 'admin';
+        if (!isAuthorized) {
+            if (req.user.role === 'creator') {
+                const creator = queryOne('SELECT id FROM creator_profiles WHERE user_id = ?', [req.user.id]);
+                isAuthorized = creator && creator.id === conv.creator_id;
+            } else if (req.user.role === 'brand') {
+                const brand = queryOne('SELECT id FROM brand_profiles WHERE user_id = ?', [req.user.id]);
+                isAuthorized = brand && brand.id === conv.brand_id;
+            }
+        }
+
+        if (!isAuthorized) {
+            return res.status(403).json({ success: false, error: 'You are not authorized to send messages in this thread.' });
+        }
+
+        const msgId = generateId('msg');
+        const cleanText = text.trim();
+
+        run(
+            'INSERT INTO messages (id, conversation_id, sender_id, text, attachment_url, read_status) VALUES (?, ?, ?, ?, ?, 0)',
+            [msgId, conversationId, req.user.id, cleanText, attachment_url || null]
+        );
+
+        run(
+            'UPDATE conversations SET last_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [cleanText, conversationId]
+        );
+
+        const newMsg = queryOne('SELECT * FROM messages WHERE id = ?', [msgId]);
+
+        return res.status(201).json({ success: true, message: newMsg });
+    } catch (err) {
+        console.error('Error sending message:', err);
         return res.status(500).json({ success: false, error: 'Failed to send message.' });
     }
 });

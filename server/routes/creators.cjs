@@ -1,444 +1,286 @@
 const express = require('express');
 const router = express.Router();
-const { Creator, Review, Brand, User, Application, Campaign, Conversation, Message, Notification } = require('../models/index.cjs');
-const { authenticateToken } = require('../middleware/auth.cjs');
+const { query, queryOne, run } = require('../db/database.cjs');
+const { authenticateToken, requireCreator, requireBrand } = require('../middleware/auth.cjs');
 
-const DEFAULT_FOLLOWERS_LIST = [
-    { id: 'fol_1', name: 'Aarav Mehta', username: 'aarav_vlogs', avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150', verified: true, role: 'Content Creator' },
-    { id: 'fol_2', name: 'Priya Sharma', username: 'priya_style', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150', verified: true, role: 'Fashion Influencer' },
-    { id: 'fol_3', name: 'Vikram Das', username: 'tech_vikram', avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150', verified: false, role: 'Tech Reviewer' },
-    { id: 'fol_4', name: 'Sneha Patel', username: 'sneha_eats', avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150', verified: true, role: 'Foodie Creator' },
-    { id: 'fol_5', name: 'Rohan Gupta', username: 'rohan_fit', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150', verified: true, role: 'Fitness Coach' }
-];
+function formatCreator(c) {
+    let categories = [];
+    let languages = [];
+    let rateCard = { reel: 6500, story: 2500, post: 4000, combo: 11000 };
 
-const DEFAULT_FOLLOWING_LIST = [
-    { id: 'fing_1', name: 'Starbucks India', username: 'starbucksindia', avatar: 'https://images.unsplash.com/photo-1559925393-8be0ec4767c8?w=150', verified: true, role: 'Brand Partner' },
-    { id: 'fing_2', name: 'Nike India', username: 'nikeindia', avatar: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=150', verified: true, role: 'Athletics & Sportswear' },
-    { id: 'fing_3', name: 'CCD Indiranagar', username: 'ccd_indiranagar', avatar: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=150', verified: true, role: 'Cafe Partner' },
-    { id: 'fing_4', name: 'Zomato Live', username: 'zomatolive', avatar: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=150', verified: true, role: 'Food & Dining Partner' }
-];
+    try { categories = JSON.parse(c.categories_json || '[]'); } catch {}
+    try { languages = JSON.parse(c.languages_json || '[]'); } catch {}
+    try { rateCard = JSON.parse(c.rate_card_json || '{}'); } catch {}
 
-// GET /api/creators
+    const isConnected = Boolean(c.ig_connected && c.ig_connected === 1);
+
+    return {
+        id: c.id,
+        user_id: c.user_id,
+        full_name: c.full_name,
+        username: c.username,
+        city: c.city,
+        area: c.area,
+        lat: c.lat,
+        lng: c.lng,
+        bio: c.bio,
+        avatar_url: c.avatar_url,
+        categories,
+        languages,
+        min_budget: c.min_budget,
+        radius_km: c.radius_km,
+        rate_card: rateCard,
+        availability: c.availability || 'available',
+        verified: Boolean(c.verified),
+        instagram: {
+            is_connected: isConnected,
+            username: isConnected ? c.ig_username : null,
+            followers_count: isConnected ? (c.ig_followers || 0) : null,
+            following_count: isConnected ? (c.ig_following || 0) : null,
+            media_count: isConnected ? (c.ig_media_count || 0) : null,
+            engagement_rate: isConnected ? (c.ig_engagement_rate || 0) : null,
+            source: isConnected ? 'LIVE_API' : 'NOT_CONNECTED',
+            last_synced_at: isConnected ? c.ig_synced_at : null
+        },
+        ai_score: c.ai_overall_score || null
+    };
+}
+
+// GET /api/creators - Search / Directory
 router.get('/', async (req, res) => {
     try {
-        const { category, city, search } = req.query;
+        const { category, city, search, sort = 'followers', limit = 50, page = 1 } = req.query;
 
-        const filter = {};
+        let sql = `
+            SELECT c.*,
+                   ia.is_connected as ig_connected, ia.username as ig_username, ia.last_synced_at as ig_synced_at,
+                   im.followers_count as ig_followers, im.follows_count as ig_following,
+                   im.media_count as ig_media_count, im.engagement_rate as ig_engagement_rate,
+                   ai.overall_score as ai_overall_score
+            FROM creator_profiles c
+            JOIN users u ON c.user_id = u.id
+            LEFT JOIN instagram_accounts ia ON c.id = ia.creator_id AND ia.is_connected = 1
+            LEFT JOIN (
+                SELECT instagram_account_id, followers_count, follows_count, media_count, engagement_rate
+                FROM instagram_metrics
+                ORDER BY recorded_at DESC
+            ) im ON ia.id = im.instagram_account_id
+            LEFT JOIN ai_creator_analyses ai ON c.id = ai.creator_id
+            WHERE u.is_active = 1
+        `;
+        const params = [];
 
         if (category && category !== 'All') {
-            filter.categories = new RegExp(category, 'i');
+            sql += ` AND c.categories_json LIKE ?`;
+            params.push(`%${category}%`);
         }
 
         if (city && city !== 'All') {
-            filter.city = new RegExp(city, 'i');
+            sql += ` AND c.city LIKE ?`;
+            params.push(`%${city}%`);
         }
 
         if (search) {
-            const searchRegex = new RegExp(search, 'i');
-            filter.$or = [
-                { full_name: searchRegex },
-                { username: searchRegex },
-                { bio: searchRegex }
-            ];
+            sql += ` AND (c.full_name LIKE ? OR c.username LIKE ? OR c.bio LIKE ? OR c.area LIKE ?)`;
+            const s = `%${search}%`;
+            params.push(s, s, s, s);
         }
 
-        const rawCreators = await Creator.find(filter).sort({ followers: -1 }).lean();
+        const rows = query(sql, params);
+        let formatted = rows.map(formatCreator);
 
-        const processed = rawCreators.map(processCreatorRecord);
+        // Sorting
+        if (sort === 'engagement') {
+            formatted.sort((a, b) => (b.instagram.engagement_rate || 0) - (a.instagram.engagement_rate || 0));
+        } else if (sort === 'score') {
+            formatted.sort((a, b) => (b.ai_score || 0) - (a.ai_score || 0));
+        } else {
+            formatted.sort((a, b) => (b.instagram.followers_count || 0) - (a.instagram.followers_count || 0));
+        }
 
-        return res.json({ success: true, count: processed.length, creators: processed });
+        const total = formatted.length;
+        const pageNum = parseInt(page) || 1;
+        const pageSize = parseInt(limit) || 50;
+        const paginated = formatted.slice((pageNum - 1) * pageSize, pageNum * pageSize);
+
+        return res.json({ success: true, count: total, creators: paginated });
     } catch (err) {
-        return res.status(500).json({ success: false, error: 'Error fetching creators.' });
+        console.error('Error querying creators:', err);
+        return res.status(500).json({ success: false, error: 'Failed to retrieve creators.' });
     }
 });
 
-// GET /api/creators/:id
+// GET /api/creators/:id - Public Creator Profile View
 router.get('/:id', async (req, res) => {
     try {
-        const creator = await Creator.findOne({ id: req.params.id }).lean();
-        if (!creator) {
-            return res.status(404).json({ success: false, error: 'Creator profile not found.' });
-        }
+        const { id } = req.params;
+        const row = queryOne(`
+            SELECT c.*,
+                   ia.is_connected as ig_connected, ia.username as ig_username, ia.last_synced_at as ig_synced_at,
+                   im.followers_count as ig_followers, im.follows_count as ig_following,
+                   im.media_count as ig_media_count, im.engagement_rate as ig_engagement_rate,
+                   ai.overall_score as ai_overall_score, ai.summary as ai_summary,
+                   ai.strengths_json, ai.recommendations_json
+            FROM creator_profiles c
+            JOIN users u ON c.user_id = u.id
+            LEFT JOIN instagram_accounts ia ON c.id = ia.creator_id AND ia.is_connected = 1
+            LEFT JOIN (
+                SELECT instagram_account_id, followers_count, follows_count, media_count, engagement_rate
+                FROM instagram_metrics
+                ORDER BY recorded_at DESC
+                LIMIT 1
+            ) im ON ia.id = im.instagram_account_id
+            LEFT JOIN ai_creator_analyses ai ON c.id = ai.creator_id
+            WHERE c.id = ? AND u.is_active = 1
+        `, [id]);
 
-        const processed = processCreatorRecord(creator);
-
-        const socialAccounts = creator.social_accounts || [];
-        const portfolio = creator.portfolio_items || [];
-
-        const rawReviews = await Review.find({ reviewee_id: creator.user_id }).sort({ created_at: -1 }).lean();
-
-        const reviewerUserIds = [...new Set(rawReviews.map(r => r.reviewer_id))];
-        const [users, brands] = await Promise.all([
-            User.find({ id: { $in: reviewerUserIds } }).lean(),
-            Brand.find({ user_id: { $in: reviewerUserIds } }).lean()
-        ]);
-
-        const userMap = {}; users.forEach(u => userMap[u.id] = u);
-        const brandMap = {}; brands.forEach(b => brandMap[b.user_id] = b);
-
-        const reviews = rawReviews.map(r => {
-            const u = userMap[r.reviewer_id] || {};
-            const b = brandMap[r.reviewer_id] || {};
-            return {
-                ...r,
-                email: u.email || '',
-                reviewer_name: b.company_name || 'Reviewer',
-                reviewer_avatar: b.logo_url || ''
-            };
-        });
-
-        return res.json({ success: true, creator, socialAccounts, portfolio, reviews });
-    } catch (err) {
-        return res.status(500).json({ success: false, error: 'Error loading creator profile.' });
-    }
-});
-
-// POST /api/creators/:id/pitch - Brand directly pitches a creator
-router.post('/:id/pitch', authenticateToken, async (req, res) => {
-    try {
-        if (req.user.role !== 'brand') {
-            return res.status(403).json({ success: false, error: 'Only brands can pitch to creators.' });
-        }
-
-        const brand = await Brand.findOne({ user_id: req.user.id }).lean();
-        if (!brand) {
-            return res.status(404).json({ success: false, error: 'Brand profile not found.' });
-        }
-
-        const creator = await Creator.findOne({ id: req.params.id }).lean();
-        if (!creator) {
+        if (!row) {
             return res.status(404).json({ success: false, error: 'Creator not found.' });
         }
 
-        const { campaign_id, custom_title, custom_budget, custom_deliverables, pitch } = req.body;
+        const creator = formatCreator(row);
 
-        if (!pitch || pitch.trim().length === 0) {
-            return res.status(400).json({ success: false, error: 'Pitch message is required.' });
-        }
+        // Fetch recent reviews
+        const reviews = query(`
+            SELECT r.*, u.email as reviewer_email, b.company_name as reviewer_brand
+            FROM reviews r
+            JOIN users u ON r.reviewer_id = u.id
+            LEFT JOIN brand_profiles b ON u.id = b.user_id
+            WHERE r.reviewee_id = ?
+            ORDER BY r.created_at DESC
+            LIMIT 10
+        `, [row.user_id]);
 
-        let campaignTitle = custom_title || 'Direct Pitch Campaign';
-        if (campaign_id) {
-            const campaign = await Campaign.findOne({ id: campaign_id }).lean();
-            if (campaign) {
-                campaignTitle = campaign.title;
-            }
-        }
-
-        const appId = 'pitch_' + Date.now();
-        const application = await Application.create({
-            id: appId,
-            campaign_id: campaign_id || '',
-            creator_id: creator.id,
-            brand_id: brand.id,
-            type: 'direct_pitch',
-            custom_title: campaignTitle,
-            custom_budget: Number(custom_budget) || 0,
-            custom_deliverables: custom_deliverables || 'As per brand agreement',
-            pitch: pitch.trim(),
-            status: 'invited',
-            applied_at: new Date()
-        });
-
-        // Send Notification to Creator
-        if (creator.user_id) {
-            await Notification.create({
-                id: 'notif_' + Date.now(),
-                user_id: creator.user_id,
-                title: '🎯 New Direct Pitch Received!',
-                message: `${brand.company_name} pitched you for "${campaignTitle}".`,
-                link: '/creator-dashboard'
-            });
-        }
-
-        // Initialize Conversation & Send Pitch Message
-        let conversation = await Conversation.findOne({ brand_id: brand.id, creator_id: creator.id });
-        if (!conversation) {
-            conversation = await Conversation.create({
-                id: 'conv_' + Date.now(),
-                brand_id: brand.id,
-                creator_id: creator.id,
-                last_message: `Direct Pitch: ${campaignTitle}`
-            });
-        } else {
-            await Conversation.updateOne({ id: conversation.id }, { last_message: `Direct Pitch: ${campaignTitle}`, updated_at: new Date() });
-        }
-
-        await Message.create({
-            id: 'msg_' + Date.now(),
-            conversation_id: conversation.id,
-            sender_id: req.user.id,
-            text: `🎯 DIRECT PITCH for "${campaignTitle}":\n${pitch.trim()}${custom_budget ? `\nBudget: ₹${Number(custom_budget).toLocaleString()}` : ''}`,
-            read_status: 0
-        });
-
-        return res.json({ success: true, message: 'Direct pitch sent successfully!', application });
-    } catch (err) {
-        console.error('Error pitching creator:', err);
-        return res.status(500).json({ success: false, error: 'Failed to send pitch to creator.' });
-    }
-});
-
-// Extract live Instagram stats based on handle or profile link
-function extractInstagramProfileStats(socialLink = '', handle = '') {
-    const rawInput = (socialLink || handle || '').trim();
-    const cleanHandle = rawInput
-        .replace(/^(https?:\/\/)?(www\.)?instagram\.com\//i, '')
-        .replace(/\?.*$/, '')
-        .replace(/^@/, '')
-        .replace(/\/.*$/, '')
-        .toLowerCase()
-        .trim();
-    
-    const FAMOUS_HANDLES = {
-        '_harsha.2k5': { followers: 485, posts: 2, reels: 2, views: 1850, likes: 185, comments: 24, rate: 8.5 },
-        'harsha.2k5': { followers: 485, posts: 2, reels: 2, views: 1850, likes: 185, comments: 24, rate: 8.5 },
-        'cristiano': { followers: 638000000, posts: 3740, reels: 1420, views: 24500000, likes: 8900000, comments: 64000, rate: 8.4 },
-        'therock': { followers: 395000000, posts: 7450, reels: 2890, views: 14200000, likes: 3200000, comments: 28000, rate: 7.2 },
-        'virat.kohli': { followers: 270000000, posts: 1680, reels: 540, views: 18900000, likes: 6400000, comments: 45000, rate: 9.1 },
-        'zomato': { followers: 945000, posts: 2420, reels: 980, views: 340000, likes: 48000, comments: 1200, rate: 6.8 },
-        'swiggy': { followers: 820000, posts: 1980, reels: 840, views: 280000, likes: 39000, comments: 950, rate: 6.5 },
-        'dominos_india': { followers: 412000, posts: 1540, reels: 620, views: 195000, likes: 24000, comments: 680, rate: 6.2 },
-        'starbucksindia': { followers: 580000, posts: 1860, reels: 740, views: 210000, likes: 31000, comments: 840, rate: 6.4 }
-    };
-
-    if (FAMOUS_HANDLES[cleanHandle]) {
-        return FAMOUS_HANDLES[cleanHandle];
-    }
-
-    if (cleanHandle.includes('harsha')) {
-        return FAMOUS_HANDLES['_harsha.2k5'];
-    }
-
-    let hash = 0;
-    for (let i = 0; i < cleanHandle.length; i++) {
-        hash = (hash << 5) - hash + cleanHandle.charCodeAt(i);
-        hash |= 0;
-    }
-    const absHash = Math.abs(hash);
-
-    const isPersonal = cleanHandle.length > 10 || /\d/.test(cleanHandle);
-    const followers = isPersonal ? (1200 + (absHash % 14000)) : (45000 + (absHash % 320000));
-    const posts = isPersonal ? (4 + (absHash % 45)) : (180 + (absHash % 620));
-    const reels = isPersonal ? Math.min(posts, 2 + (absHash % 18)) : Math.floor(posts * 0.58);
-    const views = Math.floor(followers * (isPersonal ? 1.4 : 0.38));
-    const likes = Math.floor(followers * 0.082);
-    const comments = Math.floor(likes * 0.085);
-    const rate = Number(((likes + comments) / (followers / 100)).toFixed(2));
-
-    return {
-        followers,
-        posts,
-        reels,
-        views,
-        likes,
-        comments,
-        rate: Math.max(4.2, Math.min(12.8, rate))
-    };
-}
-
-// Process creator document to attach scaled metrics and profile analysis
-function processCreatorRecord(c) {
-    if (!c) return null;
-    const targetLink = c.social_link || `@${c.username}`;
-    const stats = extractInstagramProfileStats(targetLink, c.username);
-
-    const followers = typeof c.followers === 'number' && c.followers > 0 ? c.followers : stats.followers;
-    const following = typeof c.following === 'number' && c.following > 0 ? c.following : 312;
-    const posts_count = typeof c.posts_count === 'number' && c.posts_count > 0 ? c.posts_count : stats.posts;
-    const reels_count = typeof c.reels_count === 'number' && c.reels_count > 0 ? c.reels_count : stats.reels;
-    const avg_views = typeof c.avg_views === 'number' && c.avg_views > 0 ? c.avg_views : stats.views;
-    const avg_likes = typeof c.avg_likes === 'number' && c.avg_likes > 0 ? c.avg_likes : stats.likes;
-    const avg_comments = typeof c.avg_comments === 'number' && c.avg_comments > 0 ? c.avg_comments : stats.comments;
-    const engagement_rate = typeof c.engagement_rate === 'number' && c.engagement_rate > 0 ? c.engagement_rate : stats.rate;
-
-    const categories = Array.isArray(c.categories) ? c.categories : (typeof c.categories === 'string' ? JSON.parse(c.categories || '[]') : []);
-    const languages = Array.isArray(c.languages) ? c.languages : (typeof c.languages === 'string' ? JSON.parse(c.languages || '[]') : []);
-
-    const profile_analysis = c.profile_analysis || generateProfileAnalysis(targetLink, c.bio, categories);
-
-    return {
-        ...c,
-        followers,
-        following,
-        posts_count,
-        reels_count,
-        avg_views,
-        avg_likes,
-        avg_comments,
-        engagement_rate,
-        followers_list: (c.followers_list && c.followers_list.length > 0) ? c.followers_list : DEFAULT_FOLLOWERS_LIST,
-        following_list: (c.following_list && c.following_list.length > 0) ? c.following_list : DEFAULT_FOLLOWING_LIST,
-        categories,
-        languages,
-        profile_analysis
-    };
-}
-
-// Helper function to generate AI Profile Analysis
-function generateProfileAnalysis(socialLink, creatorBio = '', categories = []) {
-    const rawLink = (socialLink || '').trim();
-    let platform = 'Instagram';
-    let handle = 'creator_profile';
-
-    if (rawLink.includes('youtube.com') || rawLink.includes('youtu.be')) {
-        platform = 'YouTube';
-    } else if (rawLink.includes('tiktok.com')) {
-        platform = 'TikTok';
-    } else if (rawLink.includes('linkedin.com')) {
-        platform = 'LinkedIn';
-    }
-
-    const cleanMatch = rawLink.match(/(?:@|user\/|c\/|channel\/|u\/|p\/)?([a-zA-Z0-9_\.\-]+)\/?$/);
-    if (cleanMatch && cleanMatch[1]) {
-        handle = cleanMatch[1].replace(/^@/, '');
-    }
-
-    const stats = extractInstagramProfileStats(rawLink, handle);
-    const mainCategory = Array.isArray(categories) && categories.length > 0 ? categories[0] : 'Lifestyle';
-
-    const minRate = Math.floor((stats.followers / 1000) * 85);
-    const maxRate = Math.floor((stats.followers / 1000) * 220);
-
-    return {
-        platform,
-        handle,
-        social_link: rawLink || `https://${platform.toLowerCase()}.com/@${handle}`,
-        health_score: Math.min(99, 88 + Math.floor(stats.rate)),
-        engagement_quality: `High (${stats.rate}%)`,
-        estimated_rates: {
-            min_rate: Math.max(3000, minRate),
-            max_rate: Math.max(8500, maxRate),
-            currency: '₹',
-            unit: 'per Reel / Video'
-        },
-        niche_breakdown: [
-            { category: mainCategory, percentage: 50 },
-            { category: 'Lifestyle & Vlogs', percentage: 30 },
-            { category: 'Brand Sponsorships', percentage: 20 }
-        ],
-        audience_demographics: {
-            top_age: '18-34 (76%)',
-            female_percent: 62,
-            male_percent: 38,
-            top_location: 'Bengaluru & Tier 1 Metros'
-        },
-        ai_recommendations: [
-            'Hook Audience in 2 Seconds: Add clear on-screen caption text in the first 2 seconds of video content for +32% retention.',
-            'Optimal Posting Window: Post between 6:30 PM - 9:00 PM IST on weekdays for maximum organic engagement.',
-            `Direct Pitch Rate: Recommended starting pitch rate for brand deliverables is ₹${Math.max(3000, minRate).toLocaleString()} - ₹${Math.max(8500, maxRate).toLocaleString()}.`
-        ],
-        analyzed_at: new Date().toISOString()
-    };
-}
-
-// POST /api/creators/analyze-profile - Analyze creator social media profile link
-router.post('/analyze-profile', authenticateToken, async (req, res) => {
-    try {
-        if (req.user.role !== 'creator') {
-            return res.status(403).json({ success: false, error: 'Only creator accounts can analyze their profile.' });
-        }
-
-        const creator = await Creator.findOne({ user_id: req.user.id });
-        if (!creator) {
-            return res.status(404).json({ success: false, error: 'Creator profile not found.' });
-        }
-
-        const { social_link } = req.body;
-        const targetLink = (social_link || creator.social_link || '').trim();
-
-        const analysis = generateProfileAnalysis(targetLink, creator.bio, creator.categories);
-        const liveStats = extractInstagramProfileStats(targetLink, analysis.handle);
-
-        await Creator.updateOne(
-            { id: creator.id },
-            {
-                social_link: targetLink,
-                verified: 1,
-                profile_completion: 100,
-                followers: liveStats.followers,
-                posts_count: liveStats.posts,
-                reels_count: liveStats.reels,
-                avg_views: liveStats.views,
-                avg_likes: liveStats.likes,
-                avg_comments: liveStats.comments,
-                engagement_rate: liveStats.rate,
-                profile_analysis: analysis
-            }
-        );
-
-        const updatedRaw = await Creator.findOne({ id: creator.id }).lean();
-        const updatedCreator = processCreatorRecord(updatedRaw);
+        // Fetch completed collaborations count
+        const completedCount = queryOne(
+            "SELECT COUNT(*) as count FROM collaborations WHERE creator_id = ? AND status = 'COMPLETED'",
+            [id]
+        )?.count || 0;
 
         return res.json({
             success: true,
-            message: 'Social profile analyzed successfully!',
-            social_link: targetLink,
-            profile_analysis: analysis,
-            creator: updatedCreator
-        });
-    } catch (err) {
-        console.error('Error analyzing profile:', err);
-        return res.status(500).json({ success: false, error: 'Failed to analyze social media profile.' });
-    }
-});
-
-// POST /api/creators/:id/sync-live-data - Real-Time Instagram Live Data Sync
-router.post('/:id/sync-live-data', async (req, res) => {
-    try {
-        const creator = await Creator.findOne({ id: req.params.id });
-        if (!creator) {
-            return res.status(404).json({ success: false, error: 'Creator profile not found.' });
-        }
-
-        const deltaFollowers = Math.floor(Math.random() * 8) + 2;
-        const deltaViews = Math.floor(Math.random() * 120) + 30;
-        const deltaLikes = Math.floor(Math.random() * 15) + 3;
-        const deltaComments = Math.floor(Math.random() * 3) + 1;
-
-        const updatedFollowers = (creator.followers || 128400) + deltaFollowers;
-        const updatedViews = (creator.avg_views || 45200) + deltaViews;
-        const updatedLikes = (creator.avg_likes || 8650) + deltaLikes;
-        const updatedComments = (creator.avg_comments || 640) + deltaComments;
-        const updatedEngagement = Number(((updatedLikes + updatedComments) / (updatedFollowers / 100)).toFixed(2));
-
-        const updatedAnalysis = generateProfileAnalysis(creator.social_link || `@${creator.username}`, creator.bio, creator.categories);
-        updatedAnalysis.engagement_quality = `High (${updatedEngagement}%)`;
-        updatedAnalysis.health_score = Math.min(99, 90 + Math.floor(updatedEngagement));
-
-        await Creator.updateOne(
-            { id: creator.id },
-            {
-                followers: updatedFollowers,
-                avg_views: updatedViews,
-                avg_likes: updatedLikes,
-                avg_comments: updatedComments,
-                engagement_rate: updatedEngagement,
-                profile_analysis: updatedAnalysis
-            }
-        );
-
-        const updatedCreator = await Creator.findOne({ id: creator.id }).lean();
-
-        return res.json({
-            success: true,
-            message: '⚡ Live Instagram metrics synced in real-time!',
             creator: {
-                ...updatedCreator,
-                followers_list: (updatedCreator.followers_list && updatedCreator.followers_list.length > 0) ? updatedCreator.followers_list : DEFAULT_FOLLOWERS_LIST,
-                following_list: (updatedCreator.following_list && updatedCreator.following_list.length > 0) ? updatedCreator.following_list : DEFAULT_FOLLOWING_LIST,
-                profile_analysis: updatedAnalysis
-            },
-            live_deltas: {
-                followers: deltaFollowers,
-                views: deltaViews,
-                likes: deltaLikes,
-                comments: deltaComments
+                ...creator,
+                completed_campaigns: completedCount,
+                reviews,
+                ai_analysis: row.ai_overall_score ? {
+                    overall_score: row.ai_overall_score,
+                    summary: row.ai_summary,
+                    strengths: JSON.parse(row.strengths_json || '[]'),
+                    recommendations: JSON.parse(row.recommendations_json || '[]')
+                } : null
             }
         });
     } catch (err) {
-        console.error('Error syncing live data:', err);
-        return res.status(500).json({ success: false, error: 'Failed to sync live profile metrics.' });
+        console.error('Error fetching creator detail:', err);
+        return res.status(500).json({ success: false, error: 'Failed to retrieve creator profile.' });
     }
 });
 
-module.exports = { router, generateProfileAnalysis, processCreatorRecord };
+// POST /api/creators/profile - Update Creator Profile
+router.post('/profile', authenticateToken, requireCreator, async (req, res) => {
+    try {
+        const {
+            full_name,
+            bio,
+            avatar_url,
+            city,
+            area,
+            categories,
+            languages,
+            min_budget,
+            rate_card
+        } = req.body;
+
+        const creator = queryOne('SELECT id FROM creator_profiles WHERE user_id = ?', [req.user.id]);
+        if (!creator) return res.status(404).json({ success: false, error: 'Creator not found.' });
+
+        run(
+            `UPDATE creator_profiles
+             SET full_name = COALESCE(?, full_name),
+                 bio = COALESCE(?, bio),
+                 avatar_url = COALESCE(?, avatar_url),
+                 city = COALESCE(?, city),
+                 area = COALESCE(?, area),
+                 categories_json = COALESCE(?, categories_json),
+                 languages_json = COALESCE(?, languages_json),
+                 min_budget = COALESCE(?, min_budget),
+                 rate_card_json = COALESCE(?, rate_card_json),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [
+                full_name,
+                bio,
+                avatar_url,
+                city,
+                area,
+                categories ? JSON.stringify(categories) : null,
+                languages ? JSON.stringify(languages) : null,
+                min_budget ? Number(min_budget) : null,
+                rate_card ? JSON.stringify(rate_card) : null,
+                creator.id
+            ]
+        );
+
+        return res.json({ success: true, message: 'Profile updated successfully.' });
+    } catch (err) {
+        console.error('Error updating creator profile:', err);
+        return res.status(500).json({ success: false, error: 'Failed to update profile: ' + err.message });
+    }
+});
+
+// POST /api/creators/:id/pitch - Brand sends a direct pitch to creator
+router.post('/:id/pitch', authenticateToken, requireBrand, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { message, proposed_budget, deliverables, campaign_id } = req.body;
+
+        const brand = queryOne('SELECT * FROM brand_profiles WHERE user_id = ?', [req.user.id]);
+        if (!brand) return res.status(403).json({ success: false, error: 'Brand profile not found.' });
+
+        const creator = queryOne('SELECT * FROM creator_profiles WHERE id = ?', [id]);
+        if (!creator) return res.status(404).json({ success: false, error: 'Creator not found.' });
+
+        // Create or get conversation
+        let conv = queryOne('SELECT id FROM conversations WHERE brand_id = ? AND creator_id = ?', [brand.id, creator.id]);
+        let convId = conv?.id;
+
+        if (!convId) {
+            convId = `conv_${Date.now()}`;
+            run(
+                'INSERT INTO conversations (id, brand_id, creator_id, campaign_id, last_message) VALUES (?, ?, ?, ?, ?)',
+                [convId, brand.id, creator.id, campaign_id || null, `Direct Pitch: ${message}`]
+            );
+        }
+
+        const msgText = `🎯 DIRECT COLLABORATION PITCH\nBrand: ${brand.company_name}\nOffer: ₹${Number(proposed_budget || 5000).toLocaleString()}\nDeliverables: ${deliverables || 'Reel + Story'}\n\nNote: ${message || 'We would love to collaborate with you on our upcoming campaign!'}`;
+
+        run(
+            'INSERT INTO messages (id, conversation_id, sender_id, text) VALUES (?, ?, ?, ?)',
+            [`msg_${Date.now()}`, convId, req.user.id, msgText]
+        );
+
+        // Notify creator
+        run(
+            'INSERT INTO notifications (id, user_id, title, message, link) VALUES (?, ?, ?, ?, ?)',
+            [
+                `notif_${Date.now()}`,
+                creator.user_id,
+                `New Pitch from ${brand.company_name}!`,
+                `Offered ₹${Number(proposed_budget || 5000).toLocaleString()} for collaboration.`,
+                `/creator/messages`
+            ]
+        );
+
+        return res.json({
+            success: true,
+            message: 'Direct pitch sent successfully! Check messages tab to track responses.',
+            conversation_id: convId
+        });
+    } catch (err) {
+        console.error('Error sending direct pitch:', err);
+        return res.status(500).json({ success: false, error: 'Failed to send pitch: ' + err.message });
+    }
+});
+
+module.exports = router;

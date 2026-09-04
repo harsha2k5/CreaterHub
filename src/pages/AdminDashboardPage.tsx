@@ -1,26 +1,54 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { ShieldCheck, Users, Building2, CheckCircle2, DollarSign, Handshake, ArrowUpRight, Sparkles } from 'lucide-react';
+import {
+  ShieldAlert,
+  Users,
+  Building2,
+  Layers,
+  DollarSign,
+  Activity,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  RefreshCw,
+  Search,
+  Lock,
+  ArrowRight
+} from 'lucide-react';
+import { Instagram } from '../components/icons/InstagramIcon';
 
 export const AdminDashboardPage: React.FC = () => {
   const [stats, setStats] = useState<any>(null);
-  const [usersList, setUsersList] = useState<any[]>([]);
-  const [collaborationsList, setCollaborationsList] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [healthData, setHealthData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'campaigns' | 'instagram'>('overview');
 
   const loadAdminData = async () => {
+    setLoading(true);
     try {
-      const [statsRes, usersRes, collabsRes] = await Promise.all([
+      const [statsRes, usersRes, campRes, healthRes] = await Promise.allSettled([
         api.getAdminStats(),
         api.getAdminUsers(),
-        api.getAdminCollaborations()
+        api.getAdminCampaigns(),
+        api.getAdminInstagramHealth()
       ]);
 
-      if (statsRes.success) setStats(statsRes.stats);
-      if (usersRes.success) setUsersList(usersRes.users || []);
-      if (collabsRes.success) setCollaborationsList(collabsRes.collaborations || []);
-    } catch (e) {
-      console.error(e);
+      if (statsRes.status === 'fulfilled' && statsRes.value.success) {
+        setStats(statsRes.value.stats);
+      }
+      if (usersRes.status === 'fulfilled' && usersRes.value.success) {
+        setUsers(usersRes.value.users || []);
+      }
+      if (campRes.status === 'fulfilled' && campRes.value.success) {
+        setCampaigns(campRes.value.campaigns || []);
+      }
+      if (healthRes.status === 'fulfilled' && healthRes.value.success) {
+        setHealthData(healthRes.value.diagnostics);
+      }
+    } catch (err) {
+      console.error('Error fetching admin data:', err);
     } finally {
       setLoading(false);
     }
@@ -30,258 +58,269 @@ export const AdminDashboardPage: React.FC = () => {
     loadAdminData();
   }, []);
 
-  const handleToggleVerify = async (userId: string) => {
+  const handleToggleUserActive = async (userId: string) => {
     try {
-      await api.verifyUser(userId);
+      await api.suspendUser(userId);
       loadAdminData();
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error('Error toggling user suspension:', err);
     }
   };
 
-  const totalPaid = stats?.totalVolume || collaborationsList.reduce((acc, c) => acc + (c.paid_amount || 0), 0);
-  const workedTogetherCount = stats?.workedTogetherCount !== undefined ? stats.workedTogetherCount : collaborationsList.length;
-
-  if (loading) {
-    return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-xs font-bold text-slate-400">Loading admin control panel...</div>;
-  }
+  const handleToggleCreatorBadge = async (creatorId: string) => {
+    try {
+      await api.verifyCreatorBadge(creatorId);
+      loadAdminData();
+    } catch (err) {
+      console.error('Error toggling creator verification:', err);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto space-y-8">
-        {/* Header Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-800/90 p-6 rounded-3xl border border-slate-700/80 shadow-xl">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
-              <ShieldCheck className="w-7 h-7" />
+    <div className="min-h-screen bg-slate-950 text-slate-100 py-10 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 bg-slate-900/60 p-6 rounded-3xl border border-slate-800 shadow-xl">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+              <ShieldAlert className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-heading text-2xl font-extrabold text-white">Admin Control Panel</h1>
-                <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 font-extrabold text-[10px] uppercase">
-                  System Executive
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">Brand × Creator partnerships oversight & Escrow payout analytics</p>
+              <div className="text-xs font-bold text-rose-400 uppercase tracking-wider">Superadmin Console</div>
+              <h1 className="text-2xl font-black text-white">Platform Governance</h1>
             </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {['overview', 'users', 'campaigns', 'instagram'].map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab as any)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold capitalize transition-all ${
+                  activeTab === tab
+                    ? 'bg-rose-600 text-white shadow-md'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                {tab === 'instagram' ? 'Meta API Health' : tab}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Primary Admin Metrics */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          {/* Worked Together Stat */}
-          <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-lg relative overflow-hidden group hover:border-purple-500/50 transition-all">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Worked Together</span>
-              <div className="w-9 h-9 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center border border-purple-500/30">
-                <Handshake className="w-5 h-5" />
+        {/* Tab 1: Overview */}
+        {activeTab === 'overview' && (
+          <div className="space-y-8">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+              <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
+                <div className="text-xs font-bold text-slate-400 mb-1">Total Creators</div>
+                <div className="text-3xl font-black text-white">{stats?.total_creators || 0}</div>
+              </div>
+              <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
+                <div className="text-xs font-bold text-slate-400 mb-1">Total Brands</div>
+                <div className="text-3xl font-black text-blue-400">{stats?.total_brands || 0}</div>
+              </div>
+              <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
+                <div className="text-xs font-bold text-slate-400 mb-1">Active Briefs</div>
+                <div className="text-3xl font-black text-purple-400">{stats?.active_campaigns || 0}</div>
+              </div>
+              <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
+                <div className="text-xs font-bold text-slate-400 mb-1">Total Released GMV</div>
+                <div className="text-3xl font-black text-emerald-400">₹{Number(stats?.total_gmv || 0).toLocaleString()}</div>
               </div>
             </div>
-            <div className="font-heading text-3xl font-extrabold text-purple-400 mb-1">
-              {workedTogetherCount} <span className="text-xs font-semibold text-slate-400">Partnerships</span>
-            </div>
-            <p className="text-[11px] text-slate-400">Brand × Creator active & completed collaborations</p>
-          </div>
 
-          {/* Total Paid Stat */}
-          <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-lg relative overflow-hidden group hover:border-emerald-500/50 transition-all">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Paid Out</span>
-              <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-                <DollarSign className="w-5 h-5" />
+            {/* Quick Instagram Health Banner */}
+            <div className="bg-slate-900/40 p-6 rounded-2xl border border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Instagram className="w-6 h-6 text-pink-400" />
+                <div>
+                  <h4 className="text-sm font-bold text-white">Official Meta Integration Status</h4>
+                  <p className="text-xs text-slate-400">
+                    {healthData?.is_configured
+                      ? 'Meta Developer App credentials active. Graph API v19.0 connected.'
+                      : 'Meta Developer App keys missing in .env.'}
+                  </p>
+                </div>
               </div>
+              <button
+                onClick={() => setActiveTab('instagram')}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200"
+              >
+                Inspect Health Console
+              </button>
             </div>
-            <div className="font-heading text-3xl font-extrabold text-emerald-400 mb-1">
-              ₹{totalPaid.toLocaleString()}
-            </div>
-            <p className="text-[11px] text-slate-400">Released Escrow payouts to creators</p>
           </div>
+        )}
 
-          {/* Total Users Stat */}
-          <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-lg relative overflow-hidden group hover:border-indigo-500/50 transition-all">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Platform Accounts</span>
-              <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
-                <Users className="w-5 h-5" />
-              </div>
+        {/* Tab 2: Users Management */}
+        {activeTab === 'users' && (
+          <div className="bg-slate-900/60 rounded-3xl border border-slate-800 overflow-hidden shadow-xl">
+            <div className="p-6 border-b border-slate-800">
+              <h3 className="text-base font-bold text-white">Registered Users & Creators</h3>
             </div>
-            <div className="font-heading text-3xl font-extrabold text-indigo-400 mb-1">
-              {stats?.totalUsers || usersList.length} <span className="text-xs font-semibold text-slate-400">Accounts</span>
-            </div>
-            <p className="text-[11px] text-slate-400">{stats?.totalBrands || 0} Brands • {stats?.totalCreators || 0} Creators</p>
-          </div>
-
-          {/* Active Campaigns Stat */}
-          <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-lg relative overflow-hidden group hover:border-blue-500/50 transition-all">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Active Briefs</span>
-              <div className="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30">
-                <Building2 className="w-5 h-5" />
-              </div>
-            </div>
-            <div className="font-heading text-3xl font-extrabold text-blue-400 mb-1">
-              {stats?.activeCampaigns || 0} <span className="text-xs font-semibold text-slate-400">Live Campaigns</span>
-            </div>
-            <p className="text-[11px] text-slate-400">Open for creator applications</p>
-          </div>
-        </div>
-
-        {/* Section 1: Brand × Creator Worked Together & Payouts Table */}
-        <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 space-y-4 shadow-xl">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-heading font-extrabold text-xl flex items-center gap-2">
-                <Handshake className="w-5 h-5 text-purple-400" />
-                Brand × Creator Partnerships & Payout History
-              </h2>
-              <p className="text-xs text-slate-400 mt-1">Detailed list of brands and creators working together and amounts paid</p>
-            </div>
-            <span className="px-3 py-1 rounded-full bg-purple-950 text-purple-300 border border-purple-800 text-xs font-bold">
-              {collaborationsList.length} Active Collaborations
-            </span>
-          </div>
-
-          {collaborationsList.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-slate-700 text-slate-400 font-bold uppercase">
-                    <th className="pb-3.5">Brand Partner</th>
-                    <th className="pb-3.5">Creator Partner</th>
-                    <th className="pb-3.5">Campaign Brief</th>
-                    <th className="pb-3.5">Collaboration Status</th>
-                    <th className="pb-3.5 text-right">Amount Paid</th>
+                <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider text-[10px] border-b border-slate-800">
+                  <tr>
+                    <th className="py-3 px-6">User / Entity</th>
+                    <th className="py-3 px-6">Role</th>
+                    <th className="py-3 px-6">Instagram Sync</th>
+                    <th className="py-3 px-6">Status</th>
+                    <th className="py-3 px-6 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-700/60 font-semibold">
-                  {collaborationsList.map(col => (
-                    <tr key={col.id} className="hover:bg-slate-700/30 transition-colors">
-                      <td className="py-4">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={col.brand_logo || 'https://images.unsplash.com/photo-1559925393-8be0ec4767c8?w=300&auto=format&fit=crop&q=80'}
-                            alt={col.brand_name}
-                            className="w-8 h-8 rounded-xl object-cover border border-slate-700"
-                          />
-                          <span className="font-bold text-white text-sm">{col.brand_name}</span>
-                        </div>
+                <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                  {users.map(u => (
+                    <tr key={u.id} className="hover:bg-slate-850/40 transition-colors">
+                      <td className="py-4 px-6">
+                        <div className="font-bold text-white">{u.creator_name || u.brand_name || 'Admin'}</div>
+                        <div className="text-[11px] text-slate-500">{u.email}</div>
                       </td>
-
-                      <td className="py-4">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={col.creator_avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80'}
-                            alt={col.creator_name}
-                            className="w-8 h-8 rounded-full object-cover border border-slate-700"
-                          />
-                          <div>
-                            <div className="font-bold text-white">{col.creator_name}</div>
-                            {col.creator_username && (
-                              <div className="text-[11px] text-purple-400 font-mono">@{col.creator_username}</div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className="py-4 text-slate-300 font-medium">
-                        {col.campaign_title}
-                      </td>
-
-                      <td className="py-4">
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase ${
-                          col.current_step >= 5 || col.status === 'completed'
-                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                            : 'bg-blue-950 text-blue-400 border border-blue-800'
+                      <td className="py-4 px-6">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                          u.role === 'admin' ? 'bg-rose-500/10 text-rose-400' : u.role === 'creator' ? 'bg-purple-500/10 text-purple-400' : 'bg-blue-500/10 text-blue-400'
                         }`}>
-                          {col.current_step >= 5 || col.status === 'completed' ? 'Completed & Released' : `Step ${col.current_step || 1} Active`}
+                          {u.role}
                         </span>
                       </td>
-
-                      <td className="py-4 text-right">
-                        <div className="font-extrabold text-sm text-emerald-400">
-                          ₹{col.paid_amount.toLocaleString()}
-                        </div>
-                        <div className="text-[10px] text-slate-400 uppercase font-bold">
-                          {col.payment_status === 'paid' ? 'Paid Out' : 'Locked in Escrow'}
-                        </div>
+                      <td className="py-4 px-6">
+                        {u.role === 'creator' ? (
+                          u.ig_connected ? (
+                            <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Synced
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">Unconnected</span>
+                          )
+                        ) : (
+                          'N/A'
+                        )}
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${u.is_active === 1 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                          {u.is_active === 1 ? 'Active' : 'Suspended'}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6 text-right space-x-2">
+                        {u.creator_id && (
+                          <button
+                            onClick={() => handleToggleCreatorBadge(u.creator_id)}
+                            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-bold"
+                          >
+                            Verify Badge
+                          </button>
+                        )}
+                        {u.role !== 'admin' && (
+                          <button
+                            onClick={() => handleToggleUserActive(u.id)}
+                            className={`px-2.5 py-1 rounded text-[11px] font-bold ${
+                              u.is_active === 1 ? 'bg-rose-600/20 text-rose-400 hover:bg-rose-600/30' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30'
+                            }`}
+                          >
+                            {u.is_active === 1 ? 'Suspend' : 'Activate'}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ) : (
-            <div className="p-8 text-center bg-slate-900/50 rounded-2xl border border-slate-700/60">
-              <Handshake className="w-8 h-8 text-slate-500 mx-auto mb-2" />
-              <p className="text-xs text-slate-400 font-semibold">No active Brand × Creator collaborations currently recorded.</p>
+          </div>
+        )}
+
+        {/* Tab 3: Campaign Moderation */}
+        {activeTab === 'campaigns' && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-bold text-white mb-2">Campaign Moderation</h2>
+            <div className="space-y-3">
+              {campaigns.map(camp => (
+                <div key={camp.id} className="bg-slate-900/60 p-5 rounded-2xl border border-slate-800 flex items-center justify-between">
+                  <div>
+                    <h4 className="font-bold text-white text-sm">{camp.title}</h4>
+                    <span className="text-xs text-slate-400">{camp.brand_name} • {camp.city} • ₹{camp.reward_per_creator?.toLocaleString()}</span>
+                  </div>
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-800 text-slate-300">
+                    {camp.status}
+                  </span>
+                </div>
+              ))}
             </div>
-          )}
-        </div>
-
-        {/* Section 2: User Account Verification & Oversight */}
-        <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 space-y-4 shadow-xl">
-          <div className="flex items-center justify-between">
-            <h2 className="font-heading font-extrabold text-xl flex items-center gap-2">
-              <Users className="w-5 h-5 text-indigo-400" />
-              Registered Accounts & Verification Status
-            </h2>
-            <span className="text-xs text-slate-400 font-semibold">{usersList.length} Accounts Registered</span>
           </div>
+        )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-700 text-slate-400 font-bold uppercase">
-                  <th className="pb-3.5">User / Entity Name</th>
-                  <th className="pb-3.5">Account Role</th>
-                  <th className="pb-3.5">Email Address</th>
-                  <th className="pb-3.5">Verification</th>
-                  <th className="pb-3.5 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/60 font-semibold">
-                {usersList.map(u => (
-                  <tr key={u.id} className="hover:bg-slate-700/30 transition-colors">
-                    <td className="py-3.5 font-bold text-white">
-                      {u.brand_name || u.creator_name || u.email.split('@')[0]}
-                    </td>
-                    <td className="py-3.5 capitalize">
-                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-extrabold uppercase ${
-                        u.role === 'brand' ? 'bg-blue-950 text-blue-400 border border-blue-800' :
-                        u.role === 'creator' ? 'bg-purple-950 text-purple-400 border border-purple-800' :
-                        'bg-indigo-950 text-indigo-400 border border-indigo-800'
-                      }`}>
-                        {u.role}
-                      </span>
-                    </td>
-                    <td className="py-3.5 text-slate-400">{u.email}</td>
-                    <td className="py-3.5">
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase ${
-                        u.is_verified ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-900 text-slate-400 border border-slate-700'
-                      }`}>
-                        {u.is_verified ? 'Verified' : 'Unverified'}
-                      </span>
-                    </td>
-                    <td className="py-3.5 text-right">
-                      <button
-                        onClick={() => handleToggleVerify(u.id)}
-                        className={`px-3 py-1 rounded-xl text-[11px] font-bold transition-all ${
-                          u.is_verified
-                            ? 'bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800'
-                            : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-500/20'
-                        }`}
-                      >
-                        {u.is_verified ? 'Revoke Verification' : 'Verify Account'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* Tab 4: Instagram API Health Console (Section 37) */}
+        {activeTab === 'instagram' && (
+          <div className="space-y-6">
+            <div className="bg-slate-900/60 p-8 rounded-3xl border border-slate-800 shadow-xl space-y-6">
+              <div>
+                <span className="text-xs font-bold text-pink-400 uppercase tracking-wider block mb-1">
+                  Diagnostics & API Observability
+                </span>
+                <h2 className="text-2xl font-black text-white">Meta Graph API Health Console</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Real-time telemetry on Meta OAuth credentials, rate limits, and synchronization logs.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800">
+                  <span className="text-slate-500 text-xs block mb-1">App ID Configured</span>
+                  <strong className={healthData?.meta_app_id_present ? 'text-emerald-400' : 'text-amber-400'}>
+                    {healthData?.meta_app_id_present ? 'Configured (Active)' : 'Missing in .env'}
+                  </strong>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800">
+                  <span className="text-slate-500 text-xs block mb-1">Connected Creators</span>
+                  <strong className="text-white">{healthData?.total_connected_accounts || 0}</strong>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800">
+                  <span className="text-slate-500 text-xs block mb-1">Sync Success / Fail</span>
+                  <strong className="text-emerald-400">
+                    {healthData?.sync_statistics?.total_successful || 0}
+                  </strong>{' '}
+                  /{' '}
+                  <strong className="text-rose-400">
+                    {healthData?.sync_statistics?.total_failed || 0}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Recent Audit Logs */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">
+                  Recent Sync Audit Logs (Structured Logging)
+                </h4>
+                {healthData?.recent_logs?.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-slate-950 text-xs text-slate-500 text-center">
+                    No sync events recorded yet.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {healthData?.recent_logs?.map((log: any) => (
+                      <div key={log.id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs flex items-center justify-between">
+                        <div>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold mr-2 ${
+                            log.status === 'SUCCESS' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                          }`}>
+                            {log.status}
+                          </span>
+                          <span className="text-slate-300 font-mono text-[11px]">{log.creator_id}</span>
+                          {log.error_message && <span className="text-rose-400 ml-2">({log.error_message})</span>}
+                        </div>
+                        <span className="text-slate-500 text-[10px]">{log.logged_at}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
 };
-

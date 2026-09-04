@@ -30,6 +30,48 @@ export interface Brand {
   verified: number;
 }
 
+export interface SocialAccount {
+  id: string;
+  creator_id: string;
+  platform: 'Instagram' | 'YouTube' | 'TikTok' | 'Twitter';
+  handle: string;
+  follower_count: number;
+  engagement_rate?: number;
+  profile_url?: string;
+  verified?: number;
+}
+
+export interface PreviousCampaign {
+  id: string;
+  campaign_title: string;
+  brand_name: string;
+  brand_logo?: string;
+  deliverables: string;
+  rating?: number;
+  review_text?: string;
+  completed_at?: string;
+}
+
+export interface CreatorScoreBreakdownItem {
+  score: number;
+  max: number;
+  weight: string;
+  label: string;
+}
+
+export interface CreatorScore {
+  total: number;
+  grade: string;
+  breakdown: {
+    engagement: CreatorScoreBreakdownItem;
+    growth: CreatorScoreBreakdownItem;
+    content: CreatorScoreBreakdownItem;
+    campaign_success: CreatorScoreBreakdownItem;
+    completeness: CreatorScoreBreakdownItem;
+    reliability: CreatorScoreBreakdownItem;
+  };
+}
+
 export interface Creator {
   id: string;
   user_id: string;
@@ -47,6 +89,9 @@ export interface Creator {
   categories: string[];
   languages: string[];
   followers: number;
+  following?: number;
+  posts_count?: number;
+  reels_count?: number;
   avg_views: number;
   avg_likes: number;
   avg_comments: number;
@@ -55,6 +100,99 @@ export interface Creator {
   review_count: number;
   profile_completion: number;
   verified: number;
+  verification_status?: 'none' | 'pending' | 'verified' | 'rejected';
+  verification_docs?: string;
+  verification_date?: string;
+  social_accounts?: SocialAccount[];
+  previous_campaigns?: PreviousCampaign[];
+  completed_campaigns_count?: number;
+  creator_score?: CreatorScore;
+  starting_price?: number;
+  rate_card?: {
+    reel?: number;
+    story?: number;
+    post?: number;
+    combo?: number;
+  };
+  availability?: 'available' | 'busy' | 'taking_pitches';
+}
+
+export interface AIMatchReason {
+  text: string;
+  passed: boolean;
+}
+
+export interface AIMatchResult extends Creator {
+  match_score: number;
+  distance_km: number;
+  match_reasons: AIMatchReason[];
+  match_breakdown?: Record<string, any>;
+}
+
+export interface AICampaignRecommendation {
+  category: string;
+  location_name: string;
+  city: string;
+  target_niche: string;
+  follower_range: string;
+  min_followers: number;
+  max_followers: number;
+  min_engagement: number;
+  deliverables: string[];
+  creators_required: number;
+  reward_per_creator: number;
+  estimated_budget: number;
+  suggested_duration: string;
+  suggested_title: string;
+  suggested_description: string;
+  strategy: string;
+  hashtags: string;
+  dos: string;
+  donts: string;
+  ai_engine?: string;
+}
+
+export interface BrandAnalyticsOverview {
+  total_campaigns: number;
+  active_campaigns: number;
+  completed_campaigns: number;
+  total_spent: number;
+  avg_campaign_cost: number;
+  creators_hired: number;
+  total_reach: number;
+  total_impressions: number;
+  total_engagement: number;
+  avg_engagement_rate: number;
+  estimated_roi: string;
+}
+
+export interface BrandAnalyticsChartPoint {
+  period: string;
+  spend: number;
+  reach: number;
+  engagement: number;
+}
+
+export interface BrandAnalytics {
+  success: boolean;
+  time_range: string;
+  overview: BrandAnalyticsOverview;
+  charts: BrandAnalyticsChartPoint[];
+}
+
+export interface CampaignMetrics {
+  reach: number;
+  impressions: number;
+  views: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  saves: number;
+  total_engagements: number;
+  engagement_rate: number;
+  cost_per_engagement: number;
+  estimated_roi: string;
+  conversions: number;
 }
 
 export interface Campaign {
@@ -98,7 +236,7 @@ export interface Campaign {
   guidelines?: string;
   dos?: string;
   donts?: string;
-  status: 'draft' | 'published' | 'closed';
+  status: 'draft' | 'published' | 'applications_open' | 'reviewing' | 'creator_selected' | 'in_progress' | 'content_submitted' | 'approved' | 'completed' | 'closed';
   distanceKm?: number;
 }
 
@@ -218,3 +356,113 @@ export interface Review {
   reviewer_name?: string;
   reviewer_avatar?: string;
 }
+
+// ==========================================
+// Creator Analytics Engine Types & Provenance
+// ==========================================
+
+export type DataProvenanceSource = 'API_PROVIDED' | 'CALCULATED' | 'BENCHMARK_ESTIMATE';
+
+export interface ProvenancedMetric<T = number> {
+  value: T;
+  source: DataProvenanceSource;
+  label?: string;
+  description?: string;
+  formula?: string;
+  currency?: string;
+  performance_tier?: string;
+  industry_benchmark?: string;
+}
+
+export interface AudienceCluster {
+  total_followers: ProvenancedMetric<number>;
+  followers_gained_this_month: ProvenancedMetric<number>;
+  following: ProvenancedMetric<number>;
+  growth_percent: ProvenancedMetric<number>;
+  location: {
+    top_cities: { city: string; percentage: number }[];
+    top_countries: { country: string; percentage: number }[];
+    source: DataProvenanceSource;
+    label: string;
+  };
+  age_distribution: {
+    brackets: { bracket: string; percentage: number }[];
+    source: DataProvenanceSource;
+    label: string;
+  };
+  gender_distribution: {
+    breakdown: { gender: string; percentage: number }[];
+    source: DataProvenanceSource;
+    label: string;
+  };
+  historical_chart: { date: string; followers: number; reach: number }[];
+}
+
+export interface ContentCluster {
+  posts: ProvenancedMetric<number> & { feed_count?: number };
+  reels: ProvenancedMetric<number>;
+  avg_views: ProvenancedMetric<number>;
+  avg_likes: ProvenancedMetric<number>;
+  avg_comments: ProvenancedMetric<number>;
+  avg_shares: ProvenancedMetric<number>;
+  avg_saves: ProvenancedMetric<number>;
+  recent_media: any[];
+}
+
+export interface EngagementCluster {
+  engagement_rate: ProvenancedMetric<number>;
+  avg_engagement_per_post: ProvenancedMetric<number>;
+  best_performing_content: {
+    id: string;
+    caption: string;
+    media_type: string;
+    thumbnail_url: string;
+    permalink: string;
+    like_count: number;
+    comments_count: number;
+    saved_count: number;
+    shares_count: number;
+    reach: number;
+    relative_score: string;
+  }[];
+  best_posting_times: {
+    recommendations: {
+      day: string;
+      time: string;
+      interaction_boost: string;
+      reason: string;
+    }[];
+    source: DataProvenanceSource;
+    label: string;
+  };
+}
+
+export interface CampaignPerformanceCluster {
+  campaign_reach: ProvenancedMetric<number>;
+  campaign_impressions: ProvenancedMetric<number>;
+  engagement_generated: ProvenancedMetric<number>;
+  clicks: ProvenancedMetric<number>;
+  conversions: ProvenancedMetric<number>;
+  earnings: ProvenancedMetric<number>;
+  active_collaborations: number;
+  completed_collaborations: number;
+}
+
+export interface CreatorAnalyticsEnginePayload {
+  success: boolean;
+  is_connected: boolean;
+  is_official_api: boolean;
+  data_source: string;
+  generated_at: string;
+  profile: any;
+  audience: AudienceCluster;
+  content: ContentCluster;
+  engagement: EngagementCluster;
+  campaign_performance: CampaignPerformanceCluster;
+  // Legacy compatibility:
+  kpi_cards?: any;
+  follower_growth_chart?: any[];
+  content_performance?: any[];
+  audience_insights?: any;
+}
+

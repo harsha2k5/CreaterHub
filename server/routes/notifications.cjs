@@ -1,27 +1,32 @@
 const express = require('express');
 const router = express.Router();
-const { Notification } = require('../models/index.cjs');
+const { query, run } = require('../db/database.cjs');
 const { authenticateToken } = require('../middleware/auth.cjs');
 
 // GET /api/notifications
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', authenticateToken, (req, res) => {
     try {
-        const notifications = await Notification.find({ user_id: req.user.id }).sort({ created_at: -1 }).lean();
-        const unreadCount = await Notification.countDocuments({ user_id: req.user.id, read_status: 0 });
+        const notifs = query(
+            'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 30',
+            [req.user.id]
+        );
+        const unreadCount = notifs.filter(n => n.read_status === 0).length;
 
-        return res.json({ success: true, unreadCount, notifications });
+        return res.json({ success: true, count: notifs.length, unread_count: unreadCount, notifications: notifs });
     } catch (err) {
-        return res.status(500).json({ success: false, error: 'Failed to load notifications.' });
+        console.error('Error fetching notifications:', err);
+        return res.status(500).json({ success: false, error: 'Failed to retrieve notifications.' });
     }
 });
 
 // PUT /api/notifications/read-all
-router.put('/read-all', authenticateToken, async (req, res) => {
+router.put('/read-all', authenticateToken, (req, res) => {
     try {
-        await Notification.updateMany({ user_id: req.user.id }, { read_status: 1 });
+        run('UPDATE notifications SET read_status = 1 WHERE user_id = ?', [req.user.id]);
         return res.json({ success: true, message: 'All notifications marked as read.' });
     } catch (err) {
-        return res.status(500).json({ success: false, error: 'Failed to update notifications.' });
+        console.error('Error marking notifications as read:', err);
+        return res.status(500).json({ success: false, error: 'Failed to mark notifications.' });
     }
 });
 

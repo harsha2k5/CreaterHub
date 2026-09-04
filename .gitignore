@@ -11,6 +11,10 @@ build/
 server/db/*.db
 server/db/*.db-wal
 server/db/*.db-shm
+server/data/
+server/data/*.db
+server/data/*.db-wal
+server/data/*.db-shm
 
 # Environment Variables & Logs
 .env
@@ -34,5 +38,7 @@ yarn-error.log*
 Thumbs.db
 
 # Scratch / Temp files
-scratch_git.js
+scratch/
+scripts/
+*.zip
 

@@ -1,193 +1,270 @@
 const express = require('express');
 const router = express.Router();
-const { Application, Campaign, Brand, Creator, Collaboration, Conversation, Message, Notification } = require('../models/index.cjs');
-const { authenticateToken } = require('../middleware/auth.cjs');
-const { processCreatorRecord } = require('./creators.cjs');
+const { query, queryOne, run, transaction } = require('../db/database.cjs');
+const { authenticateToken, requireCreator, requireBrand } = require('../middleware/auth.cjs');
+const { calculateMatchScore } = require('../services/MatchingService.cjs');
 
-// GET /api/applications
+function generateId(prefix = 'app') {
+    return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+}
+
+// POST /api/applications/apply - Creator applies to campaign
+router.post('/apply', authenticateToken, requireCreator, async (req, res) => {
+    try {
+        const creator = queryOne('SELECT * FROM creator_profiles WHERE user_id = ?', [req.user.id]);
+        if (!creator) return res.status(403).json({ success: false, error: 'Creator profile not found.' });
+
+        const {
+            campaign_id,
+            pitch,
+            relevant_experience,
+            content_idea,
+            sample_links,
+            proposed_budget,
+            proposed_deliverables,
+            availability = 'immediate'
+        } = req.body;
+
+        if (!campaign_id || !pitch) {
+            return res.status(400).json({ success: false, error: 'Campaign ID and pitch are required.' });
+        }
+
+        const campaign = queryOne('SELECT * FROM campaigns WHERE id = ?', [campaign_id]);
+        if (!campaign) {
+            return res.status(404).json({ success: false, error: 'Campaign not found.' });
+        }
+
+        if (campaign.status !== 'PUBLISHED' && campaign.status !== 'APPLICATIONS_OPEN') {
+            return res.status(400).json({ success: false, error: 'This campaign is no longer accepting applications.' });
+        }
+
+        // Check if already applied
+        const existing = queryOne(
+            'SELECT id FROM campaign_applications WHERE campaign_id = ? AND creator_id = ?',
+            [campaign_id, creator.id]
+        );
+        if (existing) {
+            return res.status(409).json({ success: false, error: 'You have already applied to this campaign.' });
+        }
+
+        const appId = generateId('app');
+        run(
+            `INSERT INTO campaign_applications (
+                id, campaign_id, creator_id, brand_id, pitch,
+                relevant_experience, content_idea, sample_links,
+                proposed_budget, proposed_deliverables, availability, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
+            [
+                appId, campaign.id, creator.id, campaign.brand_id, pitch.trim(),
+                relevant_experience || '', content_idea || '', sample_links || '',
+                proposed_budget ? Number(proposed_budget) : campaign.reward_per_creator,
+                proposed_deliverables || '', availability
+            ]
+        );
+
+        // Create notification for brand
+        const brandUser = queryOne('SELECT user_id FROM brand_profiles WHERE id = ?', [campaign.brand_id]);
+        if (brandUser) {
+            run(
+                `INSERT INTO notifications (id, user_id, title, message, link)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [
+                    generateId('notif'),
+                    brandUser.user_id,
+                    'New Creator Application',
+                    `${creator.full_name} applied to "${campaign.title}"`,
+                    `/brand/applications`
+                ]
+            );
+        }
+
+        return res.status(201).json({
+            success: true,
+            message: 'Application submitted successfully.',
+            application_id: appId
+        });
+    } catch (err) {
+        console.error('Error applying to campaign:', err);
+        return res.status(500).json({ success: false, error: 'Failed to submit application: ' + err.message });
+    }
+});
+
+// GET /api/applications - List applications (role-aware)
 router.get('/', authenticateToken, async (req, res) => {
     try {
-        if (req.user.role === 'brand') {
-            const brand = await Brand.findOne({ user_id: req.user.id }).lean();
-            if (!brand) return res.json({ success: true, applications: [] });
+        if (req.user.role === 'creator') {
+            const creator = queryOne('SELECT id FROM creator_profiles WHERE user_id = ?', [req.user.id]);
+            if (!creator) return res.status(404).json({ success: false, error: 'Creator not found.' });
 
-            const campaigns = await Campaign.find({ brand_id: brand.id }).lean();
-            const campaignIds = campaigns.map(c => c.id);
-            const campaignMap = {};
-            campaigns.forEach(c => { campaignMap[c.id] = c; });
+            const apps = query(`
+                SELECT a.*, c.title as campaign_title, c.category as campaign_category,
+                       c.reward_per_creator, c.image_url as campaign_image,
+                       b.company_name as brand_name, b.logo_url as brand_logo
+                FROM campaign_applications a
+                JOIN campaigns c ON a.campaign_id = c.id
+                JOIN brand_profiles b ON a.brand_id = b.id
+                WHERE a.creator_id = ?
+                ORDER BY a.applied_at DESC
+            `, [creator.id]);
 
-            // Find apps for brand's campaigns OR direct pitches sent by brand
-            const rawApps = await Application.find({
-                $or: [
-                    { campaign_id: { $in: campaignIds } },
-                    { brand_id: brand.id }
-                ]
-            }).sort({ applied_at: -1 }).lean();
+            return res.json({ success: true, count: apps.length, applications: apps });
+        } else if (req.user.role === 'brand') {
+            const brand = queryOne('SELECT id FROM brand_profiles WHERE user_id = ?', [req.user.id]);
+            if (!brand) return res.status(404).json({ success: false, error: 'Brand not found.' });
 
-            const creatorIds = [...new Set(rawApps.map(a => a.creator_id))];
-            const rawCreators = await Creator.find({ id: { $in: creatorIds } }).lean();
-            const creatorMap = {};
-            rawCreators.forEach(cr => { creatorMap[cr.id] = processCreatorRecord(cr); });
+            const { campaign_id, status } = req.query;
+            let sql = `
+                SELECT a.*, c.title as campaign_title, c.reward_per_creator, c.lat as campaign_lat, c.lng as campaign_lng,
+                       cr.full_name as creator_name, cr.username as creator_username,
+                       cr.avatar_url as creator_avatar, cr.city as creator_city, cr.area as creator_area,
+                       cr.categories_json as creator_categories, cr.lat as creator_lat, cr.lng as creator_lng,
+                       COALESCE(i.followers_count, 0) as ig_followers,
+                       COALESCE(i.engagement_rate, 0.0) as ig_engagement,
+                       ai.overall_score as ai_score
+                FROM campaign_applications a
+                JOIN campaigns c ON a.campaign_id = c.id
+                JOIN creator_profiles cr ON a.creator_id = cr.id
+                LEFT JOIN instagram_accounts ia ON cr.id = ia.creator_id AND ia.is_connected = 1
+                LEFT JOIN instagram_metrics i ON ia.id = i.instagram_account_id
+                LEFT JOIN ai_creator_analyses ai ON cr.id = ai.creator_id
+                WHERE a.brand_id = ?
+            `;
+            const params = [brand.id];
 
-            const apps = rawApps.map(a => {
-                const campaign = campaignMap[a.campaign_id] || {};
-                const creator = creatorMap[a.creator_id] || {};
+            if (campaign_id) {
+                sql += ` AND a.campaign_id = ?`;
+                params.push(campaign_id);
+            }
+            if (status) {
+                sql += ` AND a.status = ?`;
+                params.push(status);
+            }
+
+            sql += ` ORDER BY a.applied_at DESC`;
+
+            const apps = query(sql, params);
+
+            const enriched = apps.map(app => {
+                let categories = [];
+                try { categories = JSON.parse(app.creator_categories || '[]'); } catch {}
+                const campaignStub = {
+                    lat: app.campaign_lat,
+                    lng: app.campaign_lng,
+                    radius_km: 10
+                };
+                const creatorStub = {
+                    lat: app.creator_lat,
+                    lng: app.creator_lng,
+                    categories
+                };
+                const metrics = {
+                    followers_count: app.ig_followers,
+                    engagement_rate: app.ig_engagement
+                };
+                const match = calculateMatchScore(campaignStub, creatorStub, metrics);
+
                 return {
-                    ...a,
-                    campaign_title: a.custom_title || campaign.title || 'Direct Pitch',
-                    reward_per_creator: a.custom_budget || campaign.reward_per_creator || 0,
-                    platform: campaign.platform || 'Instagram',
-                    creator_name: creator.full_name || '',
-                    creator_username: creator.username || '',
-                    creator_avatar: creator.avatar_url || '',
-                    creator_followers: creator.followers || 0,
-                    creator_engagement: creator.engagement_rate || 0,
-                    creator_city: creator.city || '',
-                    creator_rating: creator.rating || 5.0
+                    ...app,
+                    creator_categories: categories,
+                    match_score: match.match_score,
+                    distance_km: match.distance_km
                 };
             });
 
-            return res.json({ success: true, count: apps.length, applications: apps });
-
-        } else if (req.user.role === 'creator') {
-            const creator = await Creator.findOne({ user_id: req.user.id }).lean();
-            if (!creator) return res.json({ success: true, applications: [] });
-
-            const rawApps = await Application.find({ creator_id: creator.id }).sort({ applied_at: -1 }).lean();
-
-            const campaignIds = [...new Set(rawApps.map(a => a.campaign_id).filter(Boolean))];
-            const campaigns = await Campaign.find({ id: { $in: campaignIds } }).lean();
-            const campaignMap = {};
-            campaigns.forEach(c => { campaignMap[c.id] = c; });
-
-            // Gather brand IDs from campaign or application.brand_id
-            const brandIds = [...new Set([
-                ...campaigns.map(c => c.brand_id),
-                ...rawApps.map(a => a.brand_id).filter(Boolean)
-            ])];
-
-            const brands = await Brand.find({ id: { $in: brandIds } }).lean();
-            const brandMap = {};
-            brands.forEach(b => { brandMap[b.id] = b; });
-
-            const apps = rawApps.map(a => {
-                const campaign = campaignMap[a.campaign_id] || {};
-                const targetBrandId = a.brand_id || campaign.brand_id;
-                const brand = brandMap[targetBrandId] || {};
-                return {
-                    ...a,
-                    campaign_title: a.custom_title || campaign.title || 'Direct Pitch',
-                    location_name: campaign.location_name || brand.city || 'Remote',
-                    reward_per_creator: a.custom_budget || campaign.reward_per_creator || 0,
-                    platform: campaign.platform || 'Instagram',
-                    brand_name: brand.company_name || 'Brand',
-                    brand_logo: brand.logo_url || ''
-                };
-            });
-
-            return res.json({ success: true, count: apps.length, applications: apps });
+            return res.json({ success: true, count: enriched.length, applications: enriched });
         } else {
             return res.status(403).json({ success: false, error: 'Unauthorized role.' });
         }
     } catch (err) {
         console.error('Error fetching applications:', err);
-        return res.status(500).json({ success: false, error: 'Failed to fetch applications.' });
+        return res.status(500).json({ success: false, error: 'Failed to retrieve applications.' });
     }
 });
 
-// PUT /api/applications/:id/status (Accept or Reject)
-router.put('/:id/status', authenticateToken, async (req, res) => {
+// PATCH /api/applications/:id/status - Brand accepts, shortlists, or rejects an application
+router.patch('/:id/status', authenticateToken, requireBrand, async (req, res) => {
     try {
-        const { status } = req.body;
-        if (!['accepted', 'rejected'].includes(status)) {
-            return res.status(400).json({ success: false, error: 'Invalid status. Must be accepted or rejected.' });
+        const { id } = req.params;
+        const { status } = req.body; // 'ACCEPTED' | 'SHORTLISTED' | 'REJECTED'
+
+        if (!['ACCEPTED', 'SHORTLISTED', 'REJECTED'].includes(status)) {
+            return res.status(400).json({ success: false, error: 'Invalid status. Must be ACCEPTED, SHORTLISTED, or REJECTED.' });
         }
 
-        const app = await Application.findOne({ id: req.params.id }).lean();
-        if (!app) {
-            return res.status(404).json({ success: false, error: 'Application not found.' });
-        }
+        const brand = queryOne('SELECT id FROM brand_profiles WHERE user_id = ?', [req.user.id]);
+        if (!brand) return res.status(403).json({ success: false, error: 'Unauthorized.' });
 
-        const campaign = app.campaign_id ? await Campaign.findOne({ id: app.campaign_id }).lean() : null;
-        const creator = await Creator.findOne({ id: app.creator_id }).lean();
-        const brandId = app.brand_id || (campaign ? campaign.brand_id : null);
-        const brand = brandId ? await Brand.findOne({ id: brandId }).lean() : null;
+        const app = queryOne('SELECT * FROM campaign_applications WHERE id = ? AND brand_id = ?', [id, brand.id]);
+        if (!app) return res.status(404).json({ success: false, error: 'Application not found or unauthorized.' });
 
-        // Update application status
-        await Application.updateOne({ id: app.id }, { status });
+        transaction(() => {
+            run('UPDATE campaign_applications SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [status, id]);
 
-        if (status === 'accepted' && creator && brand) {
-            // Check if collaboration already exists
-            const existingCollab = await Collaboration.findOne({ application_id: app.id }).lean();
-            let collabId = existingCollab ? existingCollab.id : 'collab_' + Date.now();
+            if (status === 'ACCEPTED') {
+                // Check if collaboration already exists
+                const existingCollab = queryOne('SELECT id FROM collaborations WHERE application_id = ?', [id]);
+                let collabId = existingCollab?.id;
 
-            if (!existingCollab) {
-                await Collaboration.create({
-                    id: collabId,
-                    campaign_id: app.campaign_id || 'direct_pitch',
-                    application_id: app.id,
-                    brand_id: brand.id,
-                    creator_id: app.creator_id,
-                    status: 'active',
-                    current_step: 2
-                });
+                if (!existingCollab) {
+                    collabId = generateId('collab');
+                    run(
+                        `INSERT INTO collaborations (id, campaign_id, application_id, brand_id, creator_id, status, current_step)
+                         VALUES (?, ?, ?, ?, ?, 'ACTIVE', 1)`,
+                        [collabId, app.campaign_id, app.id, brand.id, app.creator_id]
+                    );
 
-                if (app.campaign_id) {
-                    await Campaign.updateOne({ id: app.campaign_id }, { $inc: { creators_hired: 1 } });
+                    // Increment hired count
+                    run('UPDATE campaigns SET creators_hired = creators_hired + 1 WHERE id = ?', [app.campaign_id]);
+
+                    // Initialize simulated escrow payment record
+                    const campaign = queryOne('SELECT reward_per_creator, title FROM campaigns WHERE id = ?', [app.campaign_id]);
+                    const amount = app.proposed_budget || campaign?.reward_per_creator || 5000;
+                    run(
+                        `INSERT INTO payments (id, collaboration_id, brand_id, creator_id, amount, status, is_simulated, transaction_ref)
+                         VALUES (?, ?, ?, ?, ?, 'HELD_IN_ESCROW', 1, ?)`,
+                        [generateId('pay'), collabId, brand.id, app.creator_id, amount, 'TXN_ESCROW_' + Date.now()]
+                    );
+
+                    // Initialize conversation if not already present
+                    const existingConv = queryOne('SELECT id FROM conversations WHERE brand_id = ? AND creator_id = ?', [brand.id, app.creator_id]);
+                    if (!existingConv) {
+                        const convId = generateId('conv');
+                        run(
+                            `INSERT INTO conversations (id, brand_id, creator_id, campaign_id, last_message)
+                             VALUES (?, ?, ?, ?, ?)`,
+                            [convId, brand.id, app.creator_id, app.campaign_id, `Congratulations! Your application to "${campaign?.title || 'the campaign'}" has been accepted.`]
+                        );
+
+                        run(
+                            `INSERT INTO messages (id, conversation_id, sender_id, text, read_status)
+                             VALUES (?, ?, ?, ?, 0)`,
+                            [generateId('msg'), convId, req.user.id, `Congratulations! Your application to "${campaign?.title || 'the campaign'}" has been accepted.`]
+                        );
+                    }
                 }
 
-                // Create or find Conversation
-                const existingConv = await Conversation.findOne({ brand_id: brand.id, creator_id: app.creator_id }).lean();
-                let convId = existingConv ? existingConv.id : 'conv_' + Date.now();
-
-                if (!existingConv) {
-                    await Conversation.create({
-                        id: convId,
-                        brand_id: brand.id,
-                        creator_id: app.creator_id,
-                        collaboration_id: collabId,
-                        last_message: 'Collaboration accepted! Let us begin.'
-                    });
-                }
-
-                // Notification to Brand
-                if (brand.user_id) {
-                    await Notification.create({
-                        id: 'notif_' + Date.now(),
-                        user_id: brand.user_id,
-                        title: '🎉 Pitch Accepted!',
-                        message: `${creator.full_name} accepted your pitch for "${app.custom_title || (campaign ? campaign.title : 'Direct Pitch')}".`,
-                        link: '/collaborations'
-                    });
+                // Notify creator
+                const creatorUser = queryOne('SELECT user_id FROM creator_profiles WHERE id = ?', [app.creator_id]);
+                if (creatorUser) {
+                    run(
+                        `INSERT INTO notifications (id, user_id, title, message, link)
+                         VALUES (?, ?, ?, ?, ?)`,
+                        [
+                            generateId('notif'),
+                            creatorUser.user_id,
+                            'Application Accepted! 🎉',
+                            `Your application has been accepted! You can now begin work on your deliverables.`,
+                            `/creator/collaborations`
+                        ]
+                    );
                 }
             }
+        });
 
-            // Notification to Creator
-            if (creator.user_id) {
-                await Notification.create({
-                    id: 'notif_' + Date.now(),
-                    user_id: creator.user_id,
-                    title: '🎉 Application / Pitch Accepted!',
-                    message: `Collaboration for "${app.custom_title || (campaign ? campaign.title : 'Direct Pitch')}" is now active.`,
-                    link: '/collaborations'
-                });
-            }
-        } else if (status === 'rejected' && brand) {
-            if (brand.user_id) {
-                await Notification.create({
-                    id: 'notif_' + Date.now(),
-                    user_id: brand.user_id,
-                    title: 'Pitch Declined',
-                    message: `${creator ? creator.full_name : 'Creator'} declined the pitch for "${app.custom_title || (campaign ? campaign.title : 'Direct Pitch')}".`,
-                    link: '/brand-dashboard'
-                });
-            }
-        }
-
-        return res.json({ success: true, message: `Application / Pitch ${status} successfully.` });
+        return res.json({ success: true, message: `Application status updated to ${status}.` });
     } catch (err) {
         console.error('Error updating application status:', err);
-        return res.status(500).json({ success: false, error: 'Failed to update status.' });
+        return res.status(500).json({ success: false, error: 'Failed to update application status: ' + err.message });
     }
 });
 
