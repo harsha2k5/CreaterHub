@@ -335,6 +335,76 @@ router.post('/sync', authenticateToken, requireCreator, async (req, res) => {
 });
 
 /**
+ * Helper to safely extract Instagram username from URLs or @handles
+ */
+function extractInstagramUsername(input) {
+    if (!input || typeof input !== 'string') return null;
+    let str = input.trim();
+    str = str.split('?')[0].split('#')[0].replace(/\/+$/, '');
+    const matchUrl = str.match(/(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9_.]+)/i);
+    if (matchUrl && matchUrl[1]) {
+        const forbidden = ['p', 'explore', 'reels', 'stories', 'direct', 'accounts', 'about'];
+        if (!forbidden.includes(matchUrl[1].toLowerCase())) {
+            return matchUrl[1];
+        }
+    }
+    const cleanHandle = str.replace(/^@/, '').trim();
+    if (/^[a-zA-Z0-9_.]{1,30}$/.test(cleanHandle)) {
+        return cleanHandle;
+    }
+    return null;
+}
+
+/**
+ * POST /api/instagram/connect-by-link
+ * Effortlessly links an Instagram account by pasting an Instagram profile URL or handle.
+ */
+router.post('/connect-by-link', authenticateToken, requireCreator, (req, res) => {
+    try {
+        const creator = queryOne('SELECT * FROM creator_profiles WHERE user_id = ?', [req.user.id]);
+        if (!creator) {
+            return res.status(404).json({ success: false, error: 'Creator profile not found.' });
+        }
+
+        const rawInput = req.body.profileUrl || req.body.link || req.body.username;
+        if (!rawInput || typeof rawInput !== 'string' || !rawInput.trim()) {
+            return res.status(400).json({ success: false, error: 'Please enter or paste your Instagram profile link or handle.' });
+        }
+
+        const username = extractInstagramUsername(rawInput);
+        if (!username) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid Instagram link. Please enter a valid profile link like https://instagram.com/your_handle or @_your_handle'
+            });
+        }
+
+        const result = InstagramService.connectByProfileLink({
+            creatorId: creator.id,
+            userId: req.user.id,
+            creator,
+            username,
+            profileUrl: `https://instagram.com/${username}`,
+            followersCount: req.body.followersCount !== undefined && req.body.followersCount !== '' ? Number(req.body.followersCount) : null,
+            engagementRate: req.body.engagementRate !== undefined && req.body.engagementRate !== '' ? Number(req.body.engagementRate) : null,
+            bio: req.body.bio || null
+        });
+
+        return res.json({
+            success: true,
+            message: `Instagram account @${username} connected successfully!`,
+            account: result
+        });
+    } catch (err) {
+        console.error('Error connecting Instagram by link:', err);
+        return res.status(400).json({
+            success: false,
+            error: err.message || 'Failed to connect Instagram account.'
+        });
+    }
+});
+
+/**
  * POST /api/instagram/sandbox-connect
  * Developer Mock Mode for local testing and demonstration.
  * STRICT PRODUCTION BARRIER: Throws immediately if NODE_ENV === 'production'

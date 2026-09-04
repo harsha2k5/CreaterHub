@@ -116,6 +116,8 @@ export const api = {
   getInstagramAnalytics: () => request('/instagram/metrics'),
   getInstagramConfigStatus: () => request('/instagram/config-status'),
   connectInstagramSandbox: (payload?: any) => request('/instagram/sandbox-connect', { method: 'POST', body: JSON.stringify(payload || {}) }),
+  connectInstagramByLink: (payload: { profileUrl: string; followersCount?: number; engagementRate?: number; bio?: string }) =>
+    request('/instagram/connect-by-link', { method: 'POST', body: JSON.stringify(payload) }),
 
   // AI Creator Analysis
   triggerAIAnalysis: () => request('/ai/analyze-creator', { method: 'POST' }),
