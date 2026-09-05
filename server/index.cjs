@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const { initDB, queryOne } = require('./db/database.cjs');
@@ -57,6 +59,18 @@ app.get('/api/health', (req, res) => {
 app.use('/api', (req, res) => {
     res.status(404).json({ success: false, error: `Endpoint not found: ${req.method} ${req.originalUrl}` });
 });
+
+// Serve frontend build if dist folder exists (for single-service deployment e.g. Render / Railway / Docker)
+const distPath = path.join(__dirname, '../dist');
+if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.use((req, res, next) => {
+        if (req.method === 'GET' && !req.path.startsWith('/api')) {
+            return res.sendFile(path.join(distPath, 'index.html'));
+        }
+        next();
+    });
+}
 
 // Global Error Handler
 app.use((err, req, res, next) => {

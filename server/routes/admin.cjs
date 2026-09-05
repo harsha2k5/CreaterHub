@@ -17,10 +17,10 @@ router.get('/stats', (req, res) => {
         const completedCollabs = queryOne("SELECT COUNT(*) as count FROM collaborations WHERE status = 'COMPLETED'")?.count || 0;
         const totalApps = queryOne('SELECT COUNT(*) as count FROM campaign_applications')?.count || 0;
 
-        const gmvResult = queryOne('SELECT SUM(amount) as total FROM payments WHERE status = "RELEASED"');
+        const gmvResult = queryOne("SELECT SUM(amount) as total FROM payments WHERE status = 'RELEASED'");
         const totalGMV = gmvResult?.total || 0;
 
-        const escrowResult = queryOne('SELECT SUM(amount) as total FROM payments WHERE status = "HELD_IN_ESCROW"');
+        const escrowResult = queryOne("SELECT SUM(amount) as total FROM payments WHERE status = 'HELD_IN_ESCROW'");
         const totalEscrow = escrowResult?.total || 0;
 
         const igConnected = queryOne('SELECT COUNT(*) as count FROM instagram_accounts WHERE is_connected = 1')?.count || 0;

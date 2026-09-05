@@ -1,7 +1,21 @@
+# Netlify Configuration for CreaterHub Frontend
 [build]
   publish = "dist"
   command = "npm run build"
 
+# Option A: If you deploy your Express backend on Render, Railway, or Fly.io,
+# you can either:
+#   1. Add an environment variable in Netlify Dashboard: VITE_API_URL = https://your-backend.onrender.com
+#   OR
+#   2. Uncomment the proxy rule below and replace the URL with your live backend URL:
+#
+# [[redirects]]
+#   from = "/api/*"
+#   to = "https://your-backend.onrender.com/api/:splat"
+#   status = 200
+#   force = true
+
+# Single Page App (SPA) client-side routing fallback:
 [[redirects]]
   from = "/*"
   to = "/index.html"
