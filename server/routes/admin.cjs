@@ -10,6 +10,7 @@ router.use(authenticateToken, requireAdmin);
 // GET /api/admin/stats - High level platform metrics
 router.get('/stats', (req, res) => {
     try {
+        const totalUsers = queryOne('SELECT COUNT(*) as count FROM users')?.count || 0;
         const totalCreators = queryOne("SELECT COUNT(*) as count FROM users WHERE role = 'creator'")?.count || 0;
         const totalBrands = queryOne("SELECT COUNT(*) as count FROM users WHERE role = 'brand'")?.count || 0;
         const totalCampaigns = queryOne('SELECT COUNT(*) as count FROM campaigns')?.count || 0;
@@ -28,6 +29,7 @@ router.get('/stats', (req, res) => {
         return res.json({
             success: true,
             stats: {
+                total_users: totalUsers,
                 total_creators: totalCreators,
                 total_brands: totalBrands,
                 total_campaigns: totalCampaigns,
@@ -45,19 +47,77 @@ router.get('/stats', (req, res) => {
     }
 });
 
-// GET /api/admin/users - User directory
+// GET /api/admin/users - User directory with financial earnings & spending data
 router.get('/users', (req, res) => {
     try {
         const users = query(`
-            SELECT u.id, u.email, u.role, u.is_verified, u.is_active, u.created_at,
-                   c.full_name as creator_name, c.username as creator_username, c.id as creator_id,
-                   b.company_name as brand_name, b.id as brand_id,
-                   ia.is_connected as ig_connected
+            SELECT 
+                u.id, 
+                u.email, 
+                u.role, 
+                u.is_verified, 
+                u.is_active, 
+                u.created_at,
+                c.id as creator_id, 
+                c.full_name as creator_name, 
+                c.username as creator_username, 
+                c.subscription_tier, 
+                c.city as creator_city, 
+                c.area as creator_area,
+                c.avatar_url as creator_avatar,
+                c.verified as creator_verified,
+                b.id as brand_id, 
+                b.company_name as brand_name, 
+                b.city as brand_city, 
+                b.logo_url as brand_logo, 
+                b.verified as brand_verified,
+                ia.is_connected as ig_connected,
+                COALESCE(cr_earn.total, 0) as creator_earned,
+                COALESCE(cr_esc.total, 0) as creator_escrow,
+                COALESCE(br_spent.total, 0) as brand_spent,
+                COALESCE(br_esc.total, 0) as brand_escrow,
+                COALESCE(camp_cnt.cnt, 0) as brand_campaigns,
+                COALESCE(col_cnt.cnt, 0) as completed_deals
             FROM users u
             LEFT JOIN creator_profiles c ON u.id = c.user_id
             LEFT JOIN brand_profiles b ON u.id = b.user_id
             LEFT JOIN instagram_accounts ia ON c.id = ia.creator_id AND ia.is_connected = 1
-            ORDER BY u.created_at DESC
+            LEFT JOIN (
+                SELECT creator_id, SUM(amount) as total 
+                FROM payments 
+                WHERE status = 'RELEASED' 
+                GROUP BY creator_id
+            ) cr_earn ON c.id = cr_earn.creator_id
+            LEFT JOIN (
+                SELECT creator_id, SUM(amount) as total 
+                FROM payments 
+                WHERE status = 'HELD_IN_ESCROW' 
+                GROUP BY creator_id
+            ) cr_esc ON c.id = cr_esc.creator_id
+            LEFT JOIN (
+                SELECT brand_id, SUM(amount) as total 
+                FROM payments 
+                WHERE status = 'RELEASED' 
+                GROUP BY brand_id
+            ) br_spent ON b.id = br_spent.brand_id
+            LEFT JOIN (
+                SELECT brand_id, SUM(amount) as total 
+                FROM payments 
+                WHERE status = 'HELD_IN_ESCROW' 
+                GROUP BY brand_id
+            ) br_esc ON b.id = br_esc.brand_id
+            LEFT JOIN (
+                SELECT brand_id, COUNT(*) as cnt 
+                FROM campaigns 
+                GROUP BY brand_id
+            ) camp_cnt ON b.id = camp_cnt.brand_id
+            LEFT JOIN (
+                SELECT creator_id, COUNT(*) as cnt 
+                FROM collaborations 
+                WHERE status = 'COMPLETED' 
+                GROUP BY creator_id
+            ) col_cnt ON c.id = col_cnt.creator_id
+            ORDER BY (COALESCE(cr_earn.total, 0) + COALESCE(br_spent.total, 0)) DESC, u.created_at DESC
         `);
 
         return res.json({ success: true, count: users.length, users });

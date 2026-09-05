@@ -107,14 +107,24 @@ export const Navbar: React.FC = () => {
               </Link>
 
               <Link
-                to={isBrand ? '/brand/dashboard' : '/creator/dashboard'}
+                to={user?.role === 'admin' ? '/admin/dashboard' : isBrand ? '/brand/dashboard' : '/creator/dashboard'}
                 className={`px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-colors ${
                   location.pathname.includes('dashboard')
-                    ? 'bg-purple-950/60 text-purple-400 font-bold'
+                    ? user?.role === 'admin'
+                      ? 'bg-rose-950/60 text-rose-400 font-bold border border-rose-500/30'
+                      : 'bg-purple-950/60 text-purple-400 font-bold'
                     : 'text-slate-300 hover:bg-slate-800'
                 }`}
               >
-                <Briefcase className="w-3.5 h-3.5" /> Dashboard
+                {user?.role === 'admin' ? (
+                  <>
+                    <ShieldCheck className="w-3.5 h-3.5 text-rose-400" /> Admin Console
+                  </>
+                ) : (
+                  <>
+                    <Briefcase className="w-3.5 h-3.5" /> Dashboard
+                  </>
+                )}
               </Link>
 
               {isBrand && (
@@ -255,7 +265,11 @@ export const Navbar: React.FC = () => {
                 <span className="text-xs font-bold text-slate-200 hidden sm:inline max-w-[100px] truncate">
                   {(user.profile as any)?.full_name || (user.profile as any)?.company_name || user.email.split('@')[0]}
                 </span>
-                {!isBrand && (user.profile as any)?.subscription_tier && (user.profile as any)?.subscription_tier !== 'free' && (
+                {user.role === 'admin' ? (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                    Admin
+                  </span>
+                ) : !isBrand && (user.profile as any)?.subscription_tier && (user.profile as any)?.subscription_tier !== 'free' ? (
                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
                     (user.profile as any)?.subscription_tier === 'diamond'
                       ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
@@ -265,14 +279,18 @@ export const Navbar: React.FC = () => {
                   }`}>
                     {(user.profile as any)?.subscription_tier}
                   </span>
-                )}
+                ) : null}
                 <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
               </button>
 
               {/* Profile Menu */}
               {showProfileMenu && (
                 <div className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl p-2 z-50 text-xs font-semibold">
-                  {!isBrand && (
+                  {user.role === 'admin' ? (
+                    <div className="p-2 mb-1.5 rounded-xl bg-rose-950/40 border border-rose-500/20 text-rose-300 font-bold flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-rose-400" /> System Administrator
+                    </div>
+                  ) : !isBrand && (
                     <Link
                       to="/creator/dashboard"
                       onClick={() => setShowProfileMenu(false)}
@@ -287,11 +305,19 @@ export const Navbar: React.FC = () => {
                   )}
 
                   <Link
-                    to={isBrand ? '/brand/dashboard' : '/creator/dashboard'}
+                    to={user.role === 'admin' ? '/admin/dashboard' : isBrand ? '/brand/dashboard' : '/creator/dashboard'}
                     onClick={() => setShowProfileMenu(false)}
                     className="p-2 rounded-xl text-slate-200 hover:bg-slate-800 flex items-center gap-2"
                   >
-                    <Briefcase className="w-4 h-4 text-purple-400" /> Dashboard
+                    {user.role === 'admin' ? (
+                      <>
+                        <ShieldCheck className="w-4 h-4 text-rose-400" /> Admin Portal
+                      </>
+                    ) : (
+                      <>
+                        <Briefcase className="w-4 h-4 text-purple-400" /> Dashboard
+                      </>
+                    )}
                   </Link>
 
                   {isBrand && (

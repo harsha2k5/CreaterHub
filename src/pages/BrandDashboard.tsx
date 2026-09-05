@@ -111,8 +111,12 @@ export const BrandDashboard: React.FC = () => {
   };
 
   useEffect(() => {
+    if (user && user.role === 'admin') {
+      navigate('/admin/dashboard');
+      return;
+    }
     loadData();
-  }, [user]);
+  }, [user, navigate]);
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();

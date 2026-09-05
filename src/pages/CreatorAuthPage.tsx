@@ -87,8 +87,12 @@ export const CreatorAuthPage: React.FC = () => {
         // Section 6: Send directly to Creator Campaign Feed!
         navigate('/creator/feed');
       } else {
-        await login(email, password);
-        navigate('/creator/feed');
+        const loggedUser = await login(email, password);
+        if (loggedUser.role === 'admin') {
+          navigate('/admin/dashboard');
+        } else {
+          navigate('/creator/feed');
+        }
       }
     } catch (err: any) {
       setError(err.message || 'Authentication failed.');

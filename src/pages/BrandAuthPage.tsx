@@ -69,7 +69,11 @@ export const BrandAuthPage: React.FC = () => {
           description
         });
       } else {
-        await login(email, password);
+        const loggedUser = await login(email, password);
+        if (loggedUser.role === 'admin') {
+          navigate('/admin/dashboard');
+          return;
+        }
       }
       navigate('/brand/dashboard');
     } catch (err: any) {

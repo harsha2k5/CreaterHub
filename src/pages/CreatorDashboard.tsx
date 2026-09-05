@@ -107,8 +107,12 @@ export const CreatorDashboard: React.FC = () => {
   };
 
   useEffect(() => {
+    if (user && user.role === 'admin') {
+      navigate('/admin/dashboard');
+      return;
+    }
     loadAllData();
-  }, [user]);
+  }, [user, navigate]);
 
   // Handle Meta OAuth redirect parameters (?code=...&state=... or ?ig_code=...)
   useEffect(() => {
