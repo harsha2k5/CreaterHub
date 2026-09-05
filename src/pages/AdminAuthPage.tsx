@@ -76,6 +76,19 @@ export const AdminAuthPage: React.FC = () => {
             <ArrowRight className="w-4 h-4" />
           </button>
         </form>
+
+        <div className="mt-4 pt-4 border-t border-slate-700/60 text-center">
+          <button
+            type="button"
+            onClick={() => {
+              setEmail('admin@creatorhub.com');
+              setPassword('Admin@123');
+            }}
+            className="text-xs text-indigo-400 hover:text-indigo-300 font-bold hover:underline"
+          >
+            Click here to auto-fill default admin credentials
+          </button>
+        </div>
       </div>
     </div>
   );

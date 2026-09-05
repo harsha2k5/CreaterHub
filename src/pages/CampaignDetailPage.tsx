@@ -17,8 +17,13 @@ import {
   ArrowLeft,
   Share2,
   Hash,
-  AlertCircle
+  AlertCircle,
+  Crown,
+  Zap,
+  Award
 } from 'lucide-react';
+import { CreatorSubscriptionModal } from '../components/CreatorSubscriptionModal';
+import { CreatorSubscriptionStatus } from '../types';
 
 export const CampaignDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -27,6 +32,8 @@ export const CampaignDetailPage: React.FC = () => {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [loading, setLoading] = useState(true);
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
+  const [subscriptionData, setSubscriptionData] = useState<CreatorSubscriptionStatus | null>(null);
+  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
 
   const [hasApplied, setHasApplied] = useState(false);
 
@@ -35,27 +42,34 @@ export const CampaignDetailPage: React.FC = () => {
   const [contentIdea, setContentIdea] = useState('');
   const [relevantExperience, setRelevantExperience] = useState('');
 
-  useEffect(() => {
-    const fetchDetail = async () => {
-      if (!id) return;
-      try {
-        const res = await api.getCampaignById(id);
-        if (res.success) {
-          setCampaign(res.campaign);
-        }
-        if (user?.role === 'creator') {
-          const appRes = await api.getApplications();
-          if (appRes.success) {
-            const applied = (appRes.applications || []).some((a: any) => a.campaign_id === id);
-            setHasApplied(applied);
-          }
-        }
-      } catch (e) {
-        showToast('Failed to load campaign details', 'error');
-      } finally {
-        setLoading(false);
+  const fetchDetail = async () => {
+    if (!id) return;
+    try {
+      const res = await api.getCampaignById(id);
+      if (res.success) {
+        setCampaign(res.campaign);
       }
-    };
+      if (user?.role === 'creator') {
+        const [appRes, subRes] = await Promise.allSettled([
+          api.getApplications(),
+          api.getSubscriptionStatus()
+        ]);
+        if (appRes.status === 'fulfilled' && appRes.value.success) {
+          const applied = (appRes.value.applications || []).some((a: any) => a.campaign_id === id);
+          setHasApplied(applied);
+        }
+        if (subRes.status === 'fulfilled' && subRes.value.success) {
+          setSubscriptionData(subRes.value);
+        }
+      }
+    } catch (e) {
+      showToast('Failed to load campaign details', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchDetail();
   }, [id, user]);
 
@@ -86,6 +100,27 @@ export const CampaignDetailPage: React.FC = () => {
   }
 
   const isCreator = user?.role === 'creator';
+  const currentTier = subscriptionData?.tier || (user?.profile as any)?.subscription_tier || 'free';
+
+  const getRequiredTier = (reward: number) => {
+    if (reward > 50000) return 'diamond';
+    if (reward > 15000) return 'gold';
+    if (reward > 5000) return 'silver';
+    return 'free';
+  };
+
+  const getTierOrder = (tier: string) => {
+    switch (tier) {
+      case 'diamond': return 4;
+      case 'gold': return 3;
+      case 'silver': return 2;
+      default: return 1;
+    }
+  };
+
+  const reqTier = campaign ? getRequiredTier(campaign.reward_per_creator || 0) : 'free';
+  const isTierLocked = isCreator && getTierOrder(currentTier) < getTierOrder(reqTier);
+  const isQuotaExceeded = isCreator && subscriptionData && subscriptionData.applications_remaining === 0;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 py-8 px-4 sm:px-6 lg:px-8">
@@ -122,6 +157,12 @@ export const CampaignDetailPage: React.FC = () => {
               <div className="text-[11px] text-slate-400 flex items-center justify-end gap-1 mt-0.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Escrow Protected Payout
               </div>
+              {reqTier !== 'free' && (
+                <div className="text-[11px] font-bold text-amber-500 dark:text-amber-400 flex items-center justify-end gap-1 mt-1">
+                  <Crown className="w-3.5 h-3.5" />
+                  {reqTier === 'diamond' ? 'Diamond Elite Brief' : reqTier === 'gold' ? 'Gold VIP Brief' : 'Silver Pro Brief'}
+                </div>
+              )}
             </div>
           </div>
 
@@ -180,10 +221,16 @@ export const CampaignDetailPage: React.FC = () => {
         </div>
 
         {/* Action Button */}
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="font-extrabold text-sm">Interested in this collaboration?</div>
-            <div className="text-xs text-slate-500">Submit your pitch idea directly to the brand for review.</div>
+            <div className="text-xs text-slate-500 mt-0.5">
+              {isTierLocked
+                ? `This brief offers ₹${campaign.reward_per_creator.toLocaleString()} and requires a ${reqTier.toUpperCase()} subscription tier.`
+                : isQuotaExceeded
+                ? `You have reached your monthly application limit for your current plan.`
+                : `Submit your pitch idea directly to the brand for review.`}
+            </div>
           </div>
 
           {hasApplied ? (
@@ -191,12 +238,22 @@ export const CampaignDetailPage: React.FC = () => {
               <CheckCircle2 className="w-4 h-4 text-emerald-500 fill-emerald-500/20" /> Application Submitted & Under Review
             </div>
           ) : isCreator ? (
-            <button
-              onClick={() => setIsApplyModalOpen(true)}
-              className="px-6 py-3.5 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs shadow-lg shadow-purple-500/20 flex items-center gap-2 transition-all"
-            >
-              <Send className="w-4 h-4" /> Apply for Campaign
-            </button>
+            isTierLocked || isQuotaExceeded ? (
+              <button
+                onClick={() => setIsSubscriptionModalOpen(true)}
+                className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 flex items-center gap-2 transition-all"
+              >
+                <Crown className="w-4 h-4" />
+                {isTierLocked ? `Upgrade to ${reqTier.toUpperCase()} to Apply` : 'Upgrade Plan for More Applications'}
+              </button>
+            ) : (
+              <button
+                onClick={() => setIsApplyModalOpen(true)}
+                className="px-6 py-3.5 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs shadow-lg shadow-purple-500/20 flex items-center gap-2 transition-all"
+              >
+                <Send className="w-4 h-4" /> Apply for Campaign
+              </button>
+            )
           ) : (
             <button
               onClick={() => navigate('/creator/login')}
@@ -267,6 +324,16 @@ export const CampaignDetailPage: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Creator Subscription Upgrade Modal */}
+        <CreatorSubscriptionModal
+          isOpen={isSubscriptionModalOpen}
+          onClose={() => setIsSubscriptionModalOpen(false)}
+          currentTier={currentTier}
+          onUpgradeSuccess={() => {
+            fetchDetail();
+          }}
+        />
       </div>
     </div>
   );

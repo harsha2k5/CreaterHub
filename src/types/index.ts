@@ -115,6 +115,38 @@ export interface Creator {
     combo?: number;
   };
   availability?: 'available' | 'busy' | 'taking_pitches';
+  subscription_tier?: 'free' | 'silver' | 'gold' | 'diamond';
+  subscription_expires_at?: string;
+}
+
+export type SubscriptionTier = 'free' | 'silver' | 'gold' | 'diamond';
+
+export interface SubscriptionPlan {
+  id: SubscriptionTier;
+  name: string;
+  price_monthly: number;
+  price_yearly: number;
+  application_limit: number;
+  max_campaign_reward: number;
+  badge_name: string;
+  badge_color: string;
+  badge_icon?: string;
+  popular?: boolean;
+  perks: string[];
+}
+
+export interface CreatorSubscriptionStatus {
+  tier: SubscriptionTier;
+  tier_name: string;
+  badge_name: string;
+  expires_at?: string;
+  is_active: boolean;
+  applications_used: number;
+  application_limit: number;
+  applications_remaining: number;
+  max_campaign_reward: number;
+  plan_details: SubscriptionPlan;
+  history?: any[];
 }
 
 export interface AIMatchReason {

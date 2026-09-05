@@ -3,6 +3,7 @@ const router = express.Router();
 const { query, queryOne, run, transaction } = require('../db/database.cjs');
 const { authenticateToken, requireCreator, requireBrand } = require('../middleware/auth.cjs');
 const { calculateMatchScore } = require('../services/MatchingService.cjs');
+const { SUBSCRIPTION_PLANS } = require('./subscriptions.cjs');
 
 function generateId(prefix = 'app') {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -45,6 +46,55 @@ router.post('/apply', authenticateToken, requireCreator, async (req, res) => {
         );
         if (existing) {
             return res.status(409).json({ success: false, error: 'You have already applied to this campaign.' });
+        }
+
+        // 1. Resolve Creator Subscription Tier & Check Expiration
+        let tier = (creator.subscription_tier || 'free').toLowerCase();
+        if (creator.subscription_expires_at && new Date(creator.subscription_expires_at) < new Date()) {
+            tier = 'free';
+            run(
+                "UPDATE creator_profiles SET subscription_tier = 'free', subscription_expires_at = NULL, subscription_updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                [creator.id]
+            );
+        }
+        const plan = SUBSCRIPTION_PLANS[tier] || SUBSCRIPTION_PLANS.free;
+
+        // 2. Check Monthly Application Quota
+        const usageRow = queryOne(
+            `SELECT COUNT(*) as count FROM campaign_applications
+             WHERE creator_id = ? AND applied_at >= datetime('now', 'start of month')`,
+            [creator.id]
+        );
+        const appsUsedThisMonth = usageRow ? usageRow.count : 0;
+
+        if (appsUsedThisMonth >= plan.application_limit) {
+            return res.status(403).json({
+                success: false,
+                code: 'SUBSCRIPTION_LIMIT_REACHED',
+                error: `You have reached your monthly limit of ${plan.application_limit} campaign applications on the ${plan.name} tier. Upgrade to Silver, Gold, or Diamond to apply to more paid campaigns!`,
+                tier,
+                used: appsUsedThisMonth,
+                limit: plan.application_limit
+            });
+        }
+
+        // 3. Check Campaign Reward Ceilings (Tier Payout Access)
+        const campaignReward = Number(campaign.reward_per_creator || 0);
+        if (campaignReward > plan.max_campaign_reward) {
+            let requiredTier = 'silver';
+            if (campaignReward > 15000 && campaignReward <= 50000) requiredTier = 'gold';
+            else if (campaignReward > 50000) requiredTier = 'diamond';
+
+            const reqPlan = SUBSCRIPTION_PLANS[requiredTier];
+            return res.status(403).json({
+                success: false,
+                code: 'SUBSCRIPTION_TIER_REQUIRED',
+                error: `This campaign pays ₹${campaignReward.toLocaleString()}, which exceeds your ${plan.name} limit (₹${plan.max_campaign_reward.toLocaleString()}). Upgrade to ${reqPlan.name} to apply for this high-paying brief!`,
+                tier,
+                required_tier: requiredTier,
+                campaign_reward: campaignReward,
+                tier_limit: plan.max_campaign_reward
+            });
         }
 
         const appId = generateId('app');

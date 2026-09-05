@@ -72,7 +72,10 @@ export const api = {
   getCampaignMatches: (campaignId: string) => request(`/campaigns/${campaignId}/matches`),
 
   // Applications
-  applyCampaign: (payload: any) => request('/applications/apply', { method: 'POST', body: JSON.stringify(payload) }),
+  applyCampaign: (first: any, second?: any) => {
+    const payload = typeof first === 'string' ? { campaign_id: first, ...second } : first;
+    return request('/applications/apply', { method: 'POST', body: JSON.stringify(payload) });
+  },
   getApplications: (params: Record<string, string> = {}) => {
     const query = new URLSearchParams(params).toString();
     return request(`/applications${query ? `?${query}` : ''}`);
@@ -119,15 +122,23 @@ export const api = {
   connectInstagramByLink: (payload: { profileUrl: string; followersCount?: number; engagementRate?: number; bio?: string }) =>
     request('/instagram/connect-by-link', { method: 'POST', body: JSON.stringify(payload) }),
 
-  // AI Creator Analysis
+  // AI Creator Analysis & Campaigns
   triggerAIAnalysis: () => request('/ai/analyze-creator', { method: 'POST' }),
   getCreatorAIAnalysis: (creatorId: string) => request(`/ai/creator-analysis/${creatorId}`),
+  getAICampaignRecommendation: (payload: { prompt: string; category?: string; location?: string; budget?: number }) =>
+    request('/ai/generate-campaign-brief', { method: 'POST', body: JSON.stringify(payload) }),
   generateCampaignBriefAI: (payload: { prompt: string; category?: string; location?: string; budget?: number }) =>
     request('/ai/generate-campaign-brief', { method: 'POST', body: JSON.stringify(payload) }),
 
   // Payments & Escrow
   getCreatorEarnings: () => request('/payments/earnings'),
   releaseEscrowPayment: (collabId: string) => request(`/payments/release/${collabId}`, { method: 'POST' }),
+
+  // Creator Subscriptions (Silver, Gold, Diamond)
+  getSubscriptionStatus: () => request('/subscriptions/current'),
+  getSubscriptionPlans: () => request('/subscriptions/plans'),
+  upgradeSubscription: (payload: { tier: string; billing_cycle?: 'monthly' | 'yearly'; payment_method?: string }) =>
+    request('/subscriptions/upgrade', { method: 'POST', body: JSON.stringify(payload) }),
 
   // Messaging & Conversations
   getConversations: () => request('/messages/conversations'),

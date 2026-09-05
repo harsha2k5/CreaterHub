@@ -19,8 +19,13 @@ import {
   X,
   Send,
   Building2,
-  AlertCircle
+  AlertCircle,
+  Crown,
+  Zap,
+  Award
 } from 'lucide-react';
+import { CreatorSubscriptionModal } from '../components/CreatorSubscriptionModal';
+import { CreatorSubscriptionStatus } from '../types';
 import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -72,9 +77,63 @@ export const CreatorCampaignFeedPage: React.FC = () => {
   const [applySuccess, setApplySuccess] = useState(false);
   const [applyError, setApplyError] = useState('');
 
+  // Subscription State
+  const [subscriptionData, setSubscriptionData] = useState<CreatorSubscriptionStatus | null>(null);
+  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+
   const creatorProfile = (user?.profile as any) || {};
   const creatorLat = Number(creatorProfile.lat) || 12.9716;
   const creatorLng = Number(creatorProfile.lng) || 77.5946;
+
+  const currentTier = subscriptionData?.tier || (creatorProfile.subscription_tier as any) || 'free';
+
+  const loadSubscription = async () => {
+    try {
+      const res = await api.getSubscriptionStatus();
+      if (res.success) {
+        setSubscriptionData(res);
+      }
+    } catch (e) {
+      console.warn('Failed to load subscription status:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (user?.role === 'creator') {
+      loadSubscription();
+    }
+  }, [user]);
+
+  const getRequiredTierForCampaign = (reward: number) => {
+    if (reward > 50000) return 'diamond';
+    if (reward > 15000) return 'gold';
+    if (reward > 5000) return 'silver';
+    return 'free';
+  };
+
+  const getTierOrder = (tier: string) => {
+    switch (tier) {
+      case 'diamond': return 4;
+      case 'gold': return 3;
+      case 'silver': return 2;
+      default: return 1;
+    }
+  };
+
+  const handleOpenApply = (camp: any) => {
+    const reqTier = getRequiredTierForCampaign(camp.reward_per_creator || 0);
+    if (getTierOrder(currentTier) < getTierOrder(reqTier)) {
+      setSelectedCampaign(camp);
+      setIsSubscriptionModalOpen(true);
+      return;
+    }
+    if (subscriptionData && subscriptionData.applications_remaining === 0) {
+      setSelectedCampaign(camp);
+      setIsSubscriptionModalOpen(true);
+      return;
+    }
+    setSelectedCampaign(camp);
+  };
 
   const radiusOptions = ['1', '5', '10', '25', 'custom', 'all'];
   const categories = ['All', 'Food & Beverage', 'Fitness & Wellness', 'Beauty & Skincare', 'Dining & Nightlife', 'Fashion', 'Lifestyle'];
@@ -160,7 +219,22 @@ export const CreatorCampaignFeedPage: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Membership Status Pill */}
+            {user?.role === 'creator' && (
+              <button
+                onClick={() => setIsSubscriptionModalOpen(true)}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-slate-950 border border-slate-800 hover:border-purple-500/40 text-xs transition-all shadow-sm group"
+              >
+                <Crown className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
+                <span className="font-black text-white capitalize">{currentTier} Plan</span>
+                <span className="text-[11px] text-slate-400">
+                  • {subscriptionData?.applications_remaining === 'unlimited' ? 'Unlimited' : `${subscriptionData?.applications_remaining ?? 3} apps left`}
+                </span>
+                <span className="text-[10px] font-bold text-purple-400 ml-1">Upgrade ↗</span>
+              </button>
+            )}
+
             {/* View Mode Toggle */}
             <div className="inline-flex p-1 bg-slate-950 rounded-2xl border border-slate-800">
               <button
@@ -199,102 +273,110 @@ export const CreatorCampaignFeedPage: React.FC = () => {
           {/* Radius Selector Pills */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold text-slate-400 mr-2 flex items-center gap-1">
-              <MapPin className="w-3.5 h-3.5 text-purple-400" /> Search Radius:
+              <Filter className="w-3.5 h-3.5 text-purple-400" /> Radius:
             </span>
             {radiusOptions.map(r => (
               <button
                 key={r}
                 onClick={() => setSelectedRadius(r)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                   selectedRadius === r
-                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
-                    : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                    ? 'bg-purple-600 text-white shadow-md'
+                    : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
                 }`}
               >
-                {r === 'all' ? 'All Distance' : r === 'custom' ? 'Custom' : `${r} km`}
+                {r === 'all' ? 'All Pan-India' : r === 'custom' ? 'Custom' : `${r} km`}
               </button>
             ))}
 
             {selectedRadius === 'custom' && (
-              <div className="flex items-center gap-2 ml-2 bg-slate-900 px-3 py-1 rounded-xl border border-slate-800">
+              <div className="flex items-center gap-2 ml-2">
                 <input
                   type="range"
                   min="1"
-                  max="50"
+                  max="100"
                   value={customRadius}
                   onChange={e => setCustomRadius(Number(e.target.value))}
-                  className="w-24 accent-purple-500 cursor-pointer"
+                  className="w-24 accent-purple-500"
                 />
-                <span className="text-xs font-mono text-purple-300 font-bold">{customRadius} km</span>
+                <span className="text-xs font-bold text-purple-400">{customRadius} km</span>
               </div>
             )}
           </div>
 
-          {/* Search and Category Bar */}
-          <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-slate-800/60">
-            <form onSubmit={handleSearchSubmit} className="relative flex-1">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+          {/* Category Filter Pills */}
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/60">
+            <span className="text-xs font-bold text-slate-400 mr-2">Category:</span>
+            {categories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  selectedCategory === cat
+                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          {/* Keyword Search Input */}
+          <form onSubmit={handleSearchSubmit} className="pt-2 border-t border-slate-800/60 flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search campaigns, brands, or neighborhoods..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-purple-500 transition-colors"
+                placeholder="Search campaigns by keyword, outlet, or brand name..."
+                className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
               />
-            </form>
-
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
-              <Filter className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-              {categories.map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                    selectedCategory === cat
-                      ? 'bg-slate-800 text-purple-300 border border-purple-500/40'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
             </div>
-          </div>
+            <button
+              type="submit"
+              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all"
+            >
+              Search
+            </button>
+          </form>
         </div>
 
-        {/* View Content: Feed vs Map */}
+        {/* View Mode 1: Interactive Map View */}
         {viewMode === 'map' ? (
-          <div className="h-[600px] w-full rounded-3xl overflow-hidden border border-slate-800 shadow-2xl relative">
+          <div className="h-[550px] w-full rounded-3xl overflow-hidden border border-slate-800 shadow-2xl relative">
             <MapContainer
               center={[creatorLat, creatorLng]}
               zoom={13}
-              style={{ height: '100%', width: '100%', background: '#020617' }}
+              scrollWheelZoom={false}
+              className="h-full w-full"
             >
               <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
 
-              {/* Creator Center Location */}
+              {/* Creator Center Location Marker */}
               <Marker position={[creatorLat, creatorLng]} icon={creatorMarkerIcon}>
                 <Popup>
-                  <div className="text-xs p-1">
-                    <strong className="text-purple-600 block mb-0.5">Your Location</strong>
-                    <span>{creatorProfile.full_name || 'Creator Location'}</span>
+                  <div className="text-xs font-bold text-slate-900">
+                    📍 Your Profile Location
+                    <div className="text-[10px] text-slate-600 font-normal mt-0.5">{creatorProfile.area || 'Current Spot'}</div>
                   </div>
                 </Popup>
               </Marker>
 
-              {/* Coverage Circle */}
+              {/* Selected Radius Circle */}
               {selectedRadius !== 'all' && (
                 <Circle
                   center={[creatorLat, creatorLng]}
                   radius={(selectedRadius === 'custom' ? customRadius : Number(selectedRadius)) * 1000}
-                  pathOptions={{ color: '#9333ea', fillColor: '#9333ea', fillOpacity: 0.08 }}
+                  pathOptions={{ color: '#8b5cf6', fillColor: '#8b5cf6', fillOpacity: 0.1, weight: 1.5 }}
                 />
               )}
 
-              {/* Brand Campaign Pins */}
+              {/* Campaign Markers */}
               {campaigns.map(c => {
                 const lat = Number(c.lat) || creatorLat;
                 const lng = Number(c.lng) || creatorLng;
@@ -309,7 +391,7 @@ export const CreatorCampaignFeedPage: React.FC = () => {
                           <div className="text-[10px] text-purple-700 font-semibold mb-2">📍 {c.distance_km} km away</div>
                         )}
                         <button
-                          onClick={() => setSelectedCampaign(c)}
+                          onClick={() => handleOpenApply(c)}
                           className="w-full py-1 rounded bg-purple-600 text-white font-bold text-[11px]"
                         >
                           Quick Apply
@@ -343,76 +425,100 @@ export const CreatorCampaignFeedPage: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {campaigns.map(camp => (
-              <div
-                key={camp.id}
-                className="bg-slate-900/70 rounded-3xl border border-slate-800 hover:border-purple-500/40 transition-all flex flex-col justify-between overflow-hidden group shadow-xl"
-              >
-                <div>
-                  <div className="relative h-48 overflow-hidden bg-slate-800">
-                    <img
-                      src={camp.image_url}
-                      alt={camp.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                    <div className="absolute top-3 left-3 bg-slate-950/80 backdrop-blur-md px-3 py-1 rounded-full text-[11px] font-bold text-purple-300 border border-purple-500/20">
-                      {camp.category}
-                    </div>
-                    <div className="absolute bottom-3 right-3 bg-slate-950/90 backdrop-blur-md px-3 py-1.5 rounded-xl text-sm font-black text-emerald-400 border border-emerald-500/30">
-                      ₹{camp.reward_per_creator?.toLocaleString()}
-                    </div>
-                  </div>
+            {campaigns.map(camp => {
+              const reward = camp.reward_per_creator || 0;
+              const reqTier = getRequiredTierForCampaign(reward);
+              const isTierLocked = user?.role === 'creator' && getTierOrder(currentTier) < getTierOrder(reqTier);
 
-                  <div className="p-6">
-                    <div className="flex items-center gap-2.5 mb-2.5">
+              return (
+                <div
+                  key={camp.id}
+                  className="bg-slate-900/70 rounded-3xl border border-slate-800 hover:border-purple-500/40 transition-all flex flex-col justify-between overflow-hidden group shadow-xl"
+                >
+                  <div>
+                    <div className="relative h-48 overflow-hidden bg-slate-800">
                       <img
-                        src={camp.brand_logo}
-                        alt={camp.brand_name}
-                        className="w-6 h-6 rounded-full object-cover border border-slate-700"
+                        src={camp.image_url}
+                        alt={camp.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
-                      <span className="text-xs font-bold text-slate-300">{camp.brand_name}</span>
+                      <div className="absolute top-3 left-3 bg-slate-950/80 backdrop-blur-md px-3 py-1 rounded-full text-[11px] font-bold text-purple-300 border border-purple-500/20">
+                        {camp.category}
+                      </div>
+
+                      {isTierLocked && (
+                        <div className="absolute top-3 right-3 bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg border border-amber-300/40 backdrop-blur-md">
+                          <Crown className="w-3 h-3 text-slate-950" />
+                          {reqTier === 'diamond' ? 'Diamond Brief' : reqTier === 'gold' ? 'Gold+ Brief' : 'Silver+ Brief'}
+                        </div>
+                      )}
+
+                      <div className="absolute bottom-3 right-3 bg-slate-950/90 backdrop-blur-md px-3 py-1.5 rounded-xl text-sm font-black text-emerald-400 border border-emerald-500/30">
+                        ₹{camp.reward_per_creator?.toLocaleString()}
+                      </div>
                     </div>
 
-                    <h3 className="text-lg font-black text-white mb-2 group-hover:text-purple-300 transition-colors line-clamp-1">
-                      {camp.title}
-                    </h3>
-
-                    <p className="text-slate-400 text-xs line-clamp-2 leading-relaxed mb-4">
-                      {camp.description}
-                    </p>
-
-                    {/* Metadata Badges */}
-                    <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 mb-4">
-                      <div className="flex items-center gap-1.5 text-blue-400 font-semibold">
-                        <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="truncate">
-                          {camp.distance_km !== null ? `${camp.distance_km} km away` : camp.city}
-                        </span>
+                    <div className="p-6">
+                      <div className="flex items-center gap-2.5 mb-2.5">
+                        <img
+                          src={camp.brand_logo}
+                          alt={camp.brand_name}
+                          className="w-6 h-6 rounded-full object-cover border border-slate-700"
+                        />
+                        <span className="text-xs font-bold text-slate-300">{camp.brand_name}</span>
                       </div>
-                      <div className="flex items-center gap-1.5 text-slate-300">
-                        <Users className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
-                        <span>{camp.creators_required} creators</span>
+
+                      <h3 className="text-lg font-black text-white mb-2 group-hover:text-purple-300 transition-colors line-clamp-1">
+                        {camp.title}
+                      </h3>
+
+                      <p className="text-slate-400 text-xs line-clamp-2 leading-relaxed mb-4">
+                        {camp.description}
+                      </p>
+
+                      {/* Metadata Badges */}
+                      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 mb-4">
+                        <div className="flex items-center gap-1.5 text-blue-400 font-semibold">
+                          <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span className="truncate">
+                            {camp.distance_km !== null ? `${camp.distance_km} km away` : camp.city}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-slate-300">
+                          <Users className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+                          <span>{camp.creators_required} creators</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="p-6 pt-0 flex items-center gap-3">
-                  <Link
-                    to={`/campaigns/${camp.id}`}
-                    className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold text-center border border-slate-700 transition-all"
-                  >
-                    View Brief
-                  </Link>
-                  <button
-                    onClick={() => setSelectedCampaign(camp)}
-                    className="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold text-center shadow-lg shadow-purple-600/25 transition-all"
-                  >
-                    Quick Apply
-                  </button>
+                  <div className="p-6 pt-0 flex items-center gap-3">
+                    <Link
+                      to={`/campaigns/${camp.id}`}
+                      className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold text-center border border-slate-700 transition-all"
+                    >
+                      View Brief
+                    </Link>
+                    <button
+                      onClick={() => handleOpenApply(camp)}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-center shadow-lg transition-all flex items-center justify-center gap-1.5 ${
+                        isTierLocked
+                          ? 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black shadow-amber-500/20'
+                          : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-600/25'
+                      }`}
+                    >
+                      {isTierLocked ? (
+                        <>
+                          <Crown className="w-3.5 h-3.5" /> Upgrade to Apply
+                        </>
+                      ) : (
+                        'Quick Apply'
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -452,9 +558,26 @@ export const CreatorCampaignFeedPage: React.FC = () => {
                   </div>
 
                   {applyError && (
-                    <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                      <span>{applyError}</span>
+                    <div className="mb-4 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs space-y-2">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+                        <span className="font-semibold">{applyError}</span>
+                      </div>
+                      {(applyError.toLowerCase().includes('subscription') ||
+                        applyError.toLowerCase().includes('quota') ||
+                        applyError.toLowerCase().includes('tier') ||
+                        applyError.toLowerCase().includes('limit')) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedCampaign(null);
+                            setIsSubscriptionModalOpen(true);
+                          }}
+                          className="w-full mt-1.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold text-xs shadow-md flex items-center justify-center gap-1.5"
+                        >
+                          <Crown className="w-3.5 h-3.5 text-amber-300" /> Upgrade Subscription Tier
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -513,6 +636,17 @@ export const CreatorCampaignFeedPage: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Creator Subscription Upgrade Modal */}
+        <CreatorSubscriptionModal
+          isOpen={isSubscriptionModalOpen}
+          onClose={() => setIsSubscriptionModalOpen(false)}
+          currentTier={currentTier}
+          onUpgradeSuccess={() => {
+            loadSubscription();
+            loadCampaigns();
+          }}
+        />
       </div>
     </div>
   );

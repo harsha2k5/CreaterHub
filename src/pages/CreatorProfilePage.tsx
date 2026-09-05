@@ -285,14 +285,21 @@ export const CreatorProfilePage: React.FC = () => {
                 ))}
               </div>
 
-              {activeRole === 'brand' && (
+              {(activeRole === 'brand' || user?.role === 'brand') ? (
                 <button
                   onClick={() => setIsPitchModalOpen(true)}
                   className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:opacity-90 text-white font-extrabold text-xs shadow-lg shadow-purple-500/20 flex items-center gap-2 transition-all cursor-pointer"
                 >
                   <Send className="w-3.5 h-3.5" /> Direct Pitch to Creator
                 </button>
-              )}
+              ) : !user ? (
+                <button
+                  onClick={() => navigate('/brand/login')}
+                  className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:opacity-90 text-white font-extrabold text-xs shadow-lg shadow-purple-500/20 flex items-center gap-2 transition-all cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" /> Log in as Brand to Direct Pitch
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

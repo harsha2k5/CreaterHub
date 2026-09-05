@@ -80,12 +80,19 @@ export const DirectPitchModal: React.FC<DirectPitchModalProps> = ({
     setLoading(true);
 
     try {
+      const matchedCamp = campaigns.find(c => c.id === selectedCampaignId);
+      const calculatedBudget = pitchType === 'custom' ? (parseFloat(customBudget) || 0) : (matchedCamp?.reward_per_creator || 0);
+      const calculatedDeliverables = pitchType === 'custom' ? customDeliverables.trim() : (Array.isArray(matchedCamp?.deliverables_json) ? matchedCamp.deliverables_json.join(', ') : matchedCamp?.deliverables_json || '1 Reel + 1 Story');
+
       const payload = {
         campaign_id: pitchType === 'existing' ? selectedCampaignId : '',
-        custom_title: pitchType === 'custom' ? customTitle.trim() : '',
-        custom_budget: pitchType === 'custom' ? (parseFloat(customBudget) || 0) : 0,
-        custom_deliverables: pitchType === 'custom' ? customDeliverables.trim() : '',
-        pitch: pitchMessage.trim()
+        custom_title: pitchType === 'custom' ? customTitle.trim() : (matchedCamp?.title || ''),
+        custom_budget: calculatedBudget,
+        custom_deliverables: calculatedDeliverables,
+        pitch: pitchMessage.trim(),
+        message: pitchMessage.trim(),
+        proposed_budget: calculatedBudget,
+        deliverables: calculatedDeliverables
       };
 
       const res = await api.sendDirectPitch(creator.id, payload);

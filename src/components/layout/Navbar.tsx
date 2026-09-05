@@ -21,7 +21,9 @@ import {
   X,
   Check,
   ExternalLink,
-  Users
+  Users,
+  Send,
+  Crown
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
@@ -114,6 +116,19 @@ export const Navbar: React.FC = () => {
               >
                 <Briefcase className="w-3.5 h-3.5" /> Dashboard
               </Link>
+
+              {isBrand && (
+                <Link
+                  to="/pitch-creators"
+                  className={`px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-colors ${
+                    location.pathname === '/pitch-creators'
+                      ? 'bg-purple-950/60 text-purple-400 font-bold'
+                      : 'text-purple-400 hover:text-purple-300 hover:bg-purple-950/30'
+                  }`}
+                >
+                  <Send className="w-3.5 h-3.5" /> Direct Pitch
+                </Link>
+              )}
 
               <Link
                 to="/creator/messages"
@@ -240,12 +255,37 @@ export const Navbar: React.FC = () => {
                 <span className="text-xs font-bold text-slate-200 hidden sm:inline max-w-[100px] truncate">
                   {(user.profile as any)?.full_name || (user.profile as any)?.company_name || user.email.split('@')[0]}
                 </span>
+                {!isBrand && (user.profile as any)?.subscription_tier && (user.profile as any)?.subscription_tier !== 'free' && (
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                    (user.profile as any)?.subscription_tier === 'diamond'
+                      ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                      : (user.profile as any)?.subscription_tier === 'gold'
+                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                      : 'bg-slate-400/20 text-slate-300 border border-slate-400/30'
+                  }`}>
+                    {(user.profile as any)?.subscription_tier}
+                  </span>
+                )}
                 <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
               </button>
 
               {/* Profile Menu */}
               {showProfileMenu && (
-                <div className="absolute right-0 mt-2 w-52 rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl p-2 z-50 text-xs font-semibold">
+                <div className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl p-2 z-50 text-xs font-semibold">
+                  {!isBrand && (
+                    <Link
+                      to="/creator/dashboard"
+                      onClick={() => setShowProfileMenu(false)}
+                      className="p-2 mb-1.5 rounded-xl bg-purple-950/40 border border-purple-500/20 hover:border-purple-500/40 flex items-center justify-between text-slate-200 transition-colors"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Crown className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="capitalize font-bold">{(user.profile as any)?.subscription_tier || 'Free'} Member</span>
+                      </span>
+                      <span className="text-[10px] text-purple-400 font-bold">Manage ↗</span>
+                    </Link>
+                  )}
+
                   <Link
                     to={isBrand ? '/brand/dashboard' : '/creator/dashboard'}
                     onClick={() => setShowProfileMenu(false)}
@@ -253,6 +293,16 @@ export const Navbar: React.FC = () => {
                   >
                     <Briefcase className="w-4 h-4 text-purple-400" /> Dashboard
                   </Link>
+
+                  {isBrand && (
+                    <Link
+                      to="/pitch-creators"
+                      onClick={() => setShowProfileMenu(false)}
+                      className="p-2 rounded-xl text-purple-400 hover:bg-purple-950/40 flex items-center gap-2 font-bold"
+                    >
+                      <Send className="w-4 h-4 text-purple-400" /> Direct Pitch Creators
+                    </Link>
+                  )}
 
                   {user.role === 'admin' && (
                     <Link

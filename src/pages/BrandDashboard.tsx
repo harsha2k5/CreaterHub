@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import { DirectPitchModal } from '../components/DirectPitchModal';
 import {
   Building2,
   PlusCircle,
@@ -20,15 +21,23 @@ import {
   AlertCircle,
   ExternalLink,
   ShieldCheck,
-  DollarSign
+  DollarSign,
+  Search,
+  Star
 } from 'lucide-react';
 
 export const BrandDashboard: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'create' | 'applications' | 'creators' | 'collaborations'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'create' | 'applications' | 'creators' | 'collaborations' | 'pitch'>('overview');
   const [loading, setLoading] = useState(true);
+
+  // Direct Pitch Modal state
+  const [pitchModalCreator, setPitchModalCreator] = useState<any | null>(null);
+  const [isDirectPitchModalOpen, setIsDirectPitchModalOpen] = useState(false);
+  const [pitchTabSearch, setPitchTabSearch] = useState('');
+  const [pitchTabCategory, setPitchTabCategory] = useState('All');
 
   // Brand data states
   const [analytics, setAnalytics] = useState<any>(null);
@@ -243,6 +252,22 @@ export const BrandDashboard: React.FC = () => {
             </button>
 
             <button
+              onClick={() => setActiveTab('pitch')}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+                activeTab === 'pitch'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/20'
+                  : 'text-purple-400 hover:text-purple-300 hover:bg-purple-950/30'
+              }`}
+            >
+              <span className="flex items-center gap-3">
+                <Send className="w-4 h-4 text-purple-400" /> Direct Pitch
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">
+                Direct Deal
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('applications')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
                 activeTab === 'applications'
@@ -337,12 +362,20 @@ export const BrandDashboard: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={() => setActiveTab('create')}
-            className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-blue-600/25 transition-all self-start sm:self-auto"
-          >
-            <PlusCircle className="w-4 h-4" /> Launch Campaign
-          </button>
+          <div className="flex items-center gap-3 self-start sm:self-auto flex-wrap">
+            <button
+              onClick={() => setActiveTab('pitch')}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:opacity-90 text-white font-extrabold text-xs flex items-center gap-2 shadow-lg shadow-purple-600/25 transition-all cursor-pointer"
+            >
+              <Send className="w-4 h-4" /> Direct Pitch Creators
+            </button>
+            <button
+              onClick={() => setActiveTab('create')}
+              className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-blue-600/25 transition-all self-start sm:self-auto cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4" /> Launch Campaign
+            </button>
+          </div>
         </div>
 
         {/* Tab 1: Overview */}
@@ -384,6 +417,34 @@ export const BrandDashboard: React.FC = () => {
                 <div className="text-xs font-bold text-slate-400 mb-1">Estimated Local Reach</div>
                 <div className="text-3xl font-black text-pink-400">{Number(analytics?.estimated_reach || 0).toLocaleString()}</div>
                 <div className="text-[11px] text-slate-500 mt-1">Verified audience impressions</div>
+              </div>
+            </div>
+
+            {/* Direct Pitch Fast-Track Banner */}
+            <div className="bg-gradient-to-r from-purple-950/70 via-indigo-950/50 to-slate-900 p-6 sm:p-7 rounded-3xl border border-purple-800/40 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="space-y-2 max-w-2xl relative z-10">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/20 text-purple-300 font-extrabold text-[11px] border border-purple-500/30">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400" /> Direct Deals Without Waiting
+                </div>
+                <h3 className="text-xl font-black text-white">Direct Pitch to Top Local Creators</h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Want immediate brand coverage? Skip waiting for applications. Directly pitch verified local creators with your custom offer, set deliverables, and start working today.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 shrink-0 relative z-10 flex-wrap">
+                <button
+                  onClick={() => setActiveTab('pitch')}
+                  className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-90 text-white font-extrabold text-xs shadow-lg shadow-purple-500/25 flex items-center gap-2 transition-all cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" /> Direct Pitch Creators
+                </button>
+                <Link
+                  to="/pitch-creators"
+                  className="px-4 py-2.5 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-all flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400" /> AI Match Studio
+                </Link>
               </div>
             </div>
 
@@ -776,7 +837,19 @@ export const BrandDashboard: React.FC = () => {
         {/* Tab 5: Creators Discovery & Matchmaker */}
         {activeTab === 'creators' && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-black text-white mb-1">Discover Local Creators</h2>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black text-white mb-1">Discover Local Creators</h2>
+                <p className="text-xs text-slate-400">Browse verified creators and send direct collaboration offers.</p>
+              </div>
+              <button
+                onClick={() => setActiveTab('pitch')}
+                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" /> Switch to Direct Pitch Studio
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {matchedCreators.map(cr => (
                 <div key={cr.id} className="bg-slate-900/70 p-6 rounded-3xl border border-slate-800 flex flex-col justify-between">
@@ -794,90 +867,186 @@ export const BrandDashboard: React.FC = () => {
                     <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-950 p-2.5 rounded-xl mb-4">
                       <div>
                         <span className="text-slate-500 block">Verified Followers:</span>
-                        <strong className="text-white">{cr.instagram?.followers_count ? cr.instagram.followers_count.toLocaleString() : 'Unconnected'}</strong>
+                        <strong className="text-white">{cr.instagram?.followers_count ? cr.instagram.followers_count.toLocaleString() : (cr.followers ? cr.followers.toLocaleString() : 'Unconnected')}</strong>
                       </div>
                       <div>
                         <span className="text-slate-500 block">Engagement:</span>
-                        <strong className="text-emerald-400">{cr.instagram?.engagement_rate ? `${cr.instagram.engagement_rate}%` : '—'}</strong>
+                        <strong className="text-emerald-400">{cr.instagram?.engagement_rate ? `${cr.instagram.engagement_rate}%` : (cr.engagement_rate ? `${cr.engagement_rate}%` : '—')}</strong>
                       </div>
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => setPitchingCreator(cr)}
-                    className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md"
-                  >
-                    Direct Pitch
-                  </button>
+                  <div className="flex gap-2">
+                    <Link
+                      to={`/creators/${cr.id}`}
+                      className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs text-center"
+                    >
+                      Profile
+                    </Link>
+                    <button
+                      onClick={() => {
+                        setPitchModalCreator(cr);
+                        setIsDirectPitchModalOpen(true);
+                      }}
+                      className="flex-1 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-90 text-white text-xs font-bold shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Send className="w-3.5 h-3.5" /> Direct Pitch
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
+          </div>
+        )}
 
-            {/* Direct Pitch Modal */}
-            {pitchingCreator && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
-                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl">
-                  {pitchSuccess ? (
-                    <div className="text-center py-6">
-                      <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
-                      <h3 className="text-base font-bold text-white mb-1">Pitch Dispatched!</h3>
-                      <p className="text-xs text-slate-400">Creator has been notified in Messages.</p>
-                    </div>
-                  ) : (
-                    <form onSubmit={handleSendDirectPitch} className="space-y-4">
-                      <h3 className="text-base font-black text-white">Direct Pitch to {pitchingCreator.full_name}</h3>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-300 mb-1">Proposed Budget (₹)</label>
-                        <input
-                          type="number"
-                          value={pitchBudget}
-                          onChange={e => setPitchBudget(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-300 mb-1">Deliverables</label>
-                        <input
-                          type="text"
-                          value={pitchDeliverables}
-                          onChange={e => setPitchDeliverables(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-300 mb-1">Message</label>
-                        <textarea
-                          rows={3}
-                          value={pitchMessage}
-                          onChange={e => setPitchMessage(e.target.value)}
-                          placeholder="Tell the creator why you'd like them to visit your outlet..."
-                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs"
-                        />
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPitchingCreator(null)}
-                          className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={sendingPitch}
-                          className="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold"
-                        >
-                          {sendingPitch ? 'Sending...' : 'Send Pitch'}
-                        </button>
-                      </div>
-                    </form>
-                  )}
+        {/* Tab 6: Dedicated Direct Pitch Studio */}
+        {activeTab === 'pitch' && (
+          <div className="space-y-6">
+            {/* Direct Pitch Hero Banner */}
+            <div className="bg-gradient-to-r from-purple-950/80 via-indigo-950/60 to-slate-900 p-8 rounded-3xl border border-purple-800/40 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="relative z-10 space-y-3 max-w-3xl">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/20 text-purple-300 font-extrabold text-xs border border-purple-500/30">
+                  <Send className="w-3.5 h-3.5 text-purple-400" /> Direct Creator Outreach
+                </div>
+                <h2 className="text-3xl font-black text-white tracking-tight">Direct Pitch Studio</h2>
+                <p className="text-xs sm:text-sm text-purple-200/90 leading-relaxed">
+                  Directly pitch creators with your collaboration proposals. Choose from your existing campaigns or send custom compensation deals with customized deliverables. Pitches immediately appear in the creator's Messages inbox.
+                </p>
+                <div className="pt-2 flex items-center gap-3">
+                  <Link
+                    to="/pitch-creators"
+                    className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md shadow-purple-600/30 transition-all"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" /> AI Matchmaker & Detailed Directory →
+                  </Link>
                 </div>
               </div>
-            )}
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="bg-slate-900/70 p-4 sm:p-5 rounded-3xl border border-slate-800 flex flex-col md:flex-row gap-4 items-center justify-between shadow-lg">
+              <div className="relative w-full md:w-80">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  placeholder="Search creators by name, city, handle..."
+                  value={pitchTabSearch}
+                  onChange={e => setPitchTabSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              {/* Category Pills */}
+              <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 scrollbar-none">
+                {['All', 'Food', 'Fashion', 'Lifestyle', 'Tech', 'Fitness', 'Travel'].map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setPitchTabCategory(cat)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer ${
+                      pitchTabCategory === cat
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Creator Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {matchedCreators
+                .filter(cr => {
+                  const matchesSearch = !pitchTabSearch ||
+                    cr.full_name?.toLowerCase().includes(pitchTabSearch.toLowerCase()) ||
+                    cr.username?.toLowerCase().includes(pitchTabSearch.toLowerCase()) ||
+                    cr.city?.toLowerCase().includes(pitchTabSearch.toLowerCase());
+                  const matchesCat = pitchTabCategory === 'All' ||
+                    (cr.categories_json && cr.categories_json.toLowerCase().includes(pitchTabCategory.toLowerCase())) ||
+                    (cr.bio && cr.bio.toLowerCase().includes(pitchTabCategory.toLowerCase()));
+                  return matchesSearch && matchesCat;
+                })
+                .map(cr => (
+                  <div key={cr.id} className="bg-slate-900/70 p-6 rounded-3xl border border-purple-900/20 hover:border-purple-500/40 transition-all flex flex-col justify-between space-y-4 shadow-md group">
+                    <div>
+                      <div className="flex items-center gap-3.5 mb-3">
+                        <img
+                          src={cr.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                          alt={cr.full_name}
+                          className="w-12 h-12 rounded-2xl object-cover border-2 border-purple-500/40 group-hover:border-purple-500 transition-colors shadow-sm"
+                        />
+                        <div className="overflow-hidden">
+                          <h4 className="text-sm font-black text-white truncate flex items-center gap-1.5">
+                            {cr.full_name}
+                            {(cr.verified === 1 || cr.verification_status === 'verified') && (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                            )}
+                          </h4>
+                          <div className="text-xs text-purple-400 font-bold">@{cr.username}</div>
+                          <div className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
+                            <MapPin className="w-3 h-3 text-slate-500" /> {cr.city || 'Bengaluru'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-slate-400 line-clamp-2 mb-4 leading-relaxed">{cr.bio || 'Content creator ready for brand collaborations.'}</p>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-950/80 p-3 rounded-2xl border border-slate-800/80 mb-2">
+                        <div>
+                          <span className="text-slate-500 block text-[10px] font-bold uppercase">Followers</span>
+                          <strong className="text-white text-xs font-black">
+                            {(cr.instagram?.followers_count || cr.followers || 0).toLocaleString()}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[10px] font-bold uppercase">Engagement</span>
+                          <strong className="text-emerald-400 text-xs font-black">
+                            {cr.instagram?.engagement_rate ? `${cr.instagram.engagement_rate}%` : `${cr.engagement_rate || 4.2}%`}
+                          </strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-2 border-t border-slate-800/80">
+                      <Link
+                        to={`/creators/${cr.id}`}
+                        className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors text-center"
+                      >
+                        Profile
+                      </Link>
+                      <button
+                        onClick={() => {
+                          setPitchModalCreator(cr);
+                          setIsDirectPitchModalOpen(true);
+                        }}
+                        className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:opacity-95 text-white font-extrabold text-xs shadow-md shadow-purple-600/25 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Send className="w-3.5 h-3.5" /> Direct Pitch
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
           </div>
         )}
       </main>
+
+      {/* Global Unified Direct Pitch Modal */}
+      {pitchModalCreator && (
+        <DirectPitchModal
+          creator={pitchModalCreator}
+          isOpen={isDirectPitchModalOpen}
+          onClose={() => {
+            setIsDirectPitchModalOpen(false);
+            setPitchModalCreator(null);
+          }}
+          onSuccess={() => {
+            loadData();
+          }}
+        />
+      )}
     </div>
   );
 };

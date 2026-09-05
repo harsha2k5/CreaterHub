@@ -116,10 +116,16 @@ export const AuthRoleSelectPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="mt-8 text-center text-xs text-slate-500 relative z-10">
-        Already have an account?{' '}
-        <Link to="/creator/login" className="text-purple-400 font-bold hover:underline">
-          Sign In
+      <div className="mt-8 text-center text-xs text-slate-500 relative z-10 flex items-center justify-center gap-4">
+        <span>
+          Already have an account?{' '}
+          <Link to="/creator/login" className="text-purple-400 font-bold hover:underline">
+            Sign In
+          </Link>
+        </span>
+        <span>•</span>
+        <Link to="/admin/login" className="text-slate-400 hover:text-indigo-400 font-bold flex items-center gap-1 transition-colors">
+          <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" /> Admin Portal
         </Link>
       </div>
     </div>

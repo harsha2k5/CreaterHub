@@ -59,8 +59,9 @@ export const AICampaignModal: React.FC<AICampaignModalProps> = ({
         prompt: textToUse,
         budget: Number(budget) || 25000
       });
-      if (res.success && res.recommendation) {
-        setRecommendation(res.recommendation);
+      const rec = res.recommendation || res.brief;
+      if (res.success && rec) {
+        setRecommendation(rec);
         showToast('✨ AI Campaign Brief generated successfully!');
       }
     } catch (err: any) {

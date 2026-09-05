@@ -32,6 +32,8 @@ function formatCreator(c) {
         rate_card: rateCard,
         availability: c.availability || 'available',
         verified: Boolean(c.verified),
+        subscription_tier: c.subscription_tier || 'free',
+        subscription_expires_at: c.subscription_expires_at || null,
         instagram: {
             is_connected: isConnected,
             username: isConnected ? c.ig_username : null,
@@ -246,7 +248,15 @@ router.post('/profile', authenticateToken, requireCreator, async (req, res) => {
 router.post('/:id/pitch', authenticateToken, requireBrand, async (req, res) => {
     try {
         const { id } = req.params;
-        const { message, proposed_budget, deliverables, campaign_id } = req.body;
+        const pitchText = (req.body.pitch || req.body.message || '').trim();
+        const campaignId = req.body.campaign_id || null;
+        let customTitle = (req.body.custom_title || '').trim();
+        let proposedBudget = Number(req.body.custom_budget || req.body.proposed_budget || req.body.budget || 0);
+        let deliverables = (req.body.custom_deliverables || req.body.deliverables || '').trim();
+
+        if (!pitchText) {
+            return res.status(400).json({ success: false, error: 'A pitch message is required.' });
+        }
 
         const brand = queryOne('SELECT * FROM brand_profiles WHERE user_id = ?', [req.user.id]);
         if (!brand) return res.status(403).json({ success: false, error: 'Brand profile not found.' });
@@ -254,19 +264,71 @@ router.post('/:id/pitch', authenticateToken, requireBrand, async (req, res) => {
         const creator = queryOne('SELECT * FROM creator_profiles WHERE id = ?', [id]);
         if (!creator) return res.status(404).json({ success: false, error: 'Creator not found.' });
 
+        // If campaign_id is provided, look up campaign details
+        let campaign = null;
+        if (campaignId) {
+            campaign = queryOne('SELECT * FROM campaigns WHERE id = ?', [campaignId]);
+            if (campaign) {
+                if (!customTitle) customTitle = campaign.title;
+                if (!proposedBudget) proposedBudget = Number(campaign.reward_per_creator || 5000);
+                if (!deliverables) {
+                    try {
+                        const parsed = JSON.parse(campaign.deliverables_json || '[]');
+                        deliverables = Array.isArray(parsed) && parsed.length > 0 ? parsed.join(', ') : 'Reel + Story';
+                    } catch {
+                        deliverables = 'Reel + Story';
+                    }
+                }
+
+                // If not already in campaign_applications, add as SHORTLISTED invitation
+                const existingApp = queryOne(
+                    'SELECT id FROM campaign_applications WHERE campaign_id = ? AND creator_id = ?',
+                    [campaign.id, creator.id]
+                );
+                if (!existingApp) {
+                    run(
+                        `INSERT INTO campaign_applications (
+                            id, campaign_id, creator_id, brand_id, pitch,
+                            proposed_budget, proposed_deliverables, status
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'SHORTLISTED')`,
+                        [
+                            `app_pitch_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                            campaign.id,
+                            creator.id,
+                            brand.id,
+                            `Direct Brand Pitch: ${pitchText}`,
+                            proposedBudget,
+                            deliverables
+                        ]
+                    );
+                }
+            }
+        }
+
+        if (!proposedBudget) proposedBudget = 5000;
+        if (!deliverables) deliverables = '1 Reel + 1 Story';
+        if (!customTitle) customTitle = 'Custom Collaboration';
+
         // Create or get conversation
         let conv = queryOne('SELECT id FROM conversations WHERE brand_id = ? AND creator_id = ?', [brand.id, creator.id]);
         let convId = conv?.id;
+
+        const snippet = pitchText.length > 80 ? pitchText.substring(0, 77) + '...' : pitchText;
 
         if (!convId) {
             convId = `conv_${Date.now()}`;
             run(
                 'INSERT INTO conversations (id, brand_id, creator_id, campaign_id, last_message) VALUES (?, ?, ?, ?, ?)',
-                [convId, brand.id, creator.id, campaign_id || null, `Direct Pitch: ${message}`]
+                [convId, brand.id, creator.id, campaignId || null, `Direct Pitch: ${snippet}`]
+            );
+        } else {
+            run(
+                'UPDATE conversations SET last_message = ?, campaign_id = COALESCE(?, campaign_id), updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                [`Direct Pitch: ${snippet}`, campaignId || null, convId]
             );
         }
 
-        const msgText = `🎯 DIRECT COLLABORATION PITCH\nBrand: ${brand.company_name}\nOffer: ₹${Number(proposed_budget || 5000).toLocaleString()}\nDeliverables: ${deliverables || 'Reel + Story'}\n\nNote: ${message || 'We would love to collaborate with you on our upcoming campaign!'}`;
+        const msgText = `🎯 DIRECT COLLABORATION PITCH\nBrand: ${brand.company_name}\nProject: ${customTitle}\nOffer: ₹${proposedBudget.toLocaleString()}\nDeliverables: ${deliverables}\n\nNote: ${pitchText}`;
 
         run(
             'INSERT INTO messages (id, conversation_id, sender_id, text) VALUES (?, ?, ?, ?)',
@@ -279,15 +341,15 @@ router.post('/:id/pitch', authenticateToken, requireBrand, async (req, res) => {
             [
                 `notif_${Date.now()}`,
                 creator.user_id,
-                `New Pitch from ${brand.company_name}!`,
-                `Offered ₹${Number(proposed_budget || 5000).toLocaleString()} for collaboration.`,
+                `🎯 New Direct Pitch from ${brand.company_name}!`,
+                `Offered ₹${proposedBudget.toLocaleString()} for "${customTitle}" (${deliverables}). Reply in messages!`,
                 `/creator/messages`
             ]
         );
 
         return res.json({
             success: true,
-            message: 'Direct pitch sent successfully! Check messages tab to track responses.',
+            message: `Direct pitch sent to ${creator.full_name}! Track progress in Messages.`,
             conversation_id: convId
         });
     } catch (err) {

@@ -21,17 +21,23 @@ import {
   ShieldCheck,
   Building2,
   FileCheck,
-  Send
+  Send,
+  Crown,
+  Award,
+  Zap,
+  ChevronRight
 } from 'lucide-react';
 import { Instagram } from '../components/icons/InstagramIcon';
 import { InstagramIntegrationView } from '../components/instagram/InstagramIntegrationView';
 import { AICreatorAnalysisCard } from '../components/analytics/AICreatorAnalysisCard';
+import { CreatorSubscriptionModal } from '../components/CreatorSubscriptionModal';
+import { CreatorSubscriptionStatus } from '../types';
 
 export const CreatorDashboard: React.FC = () => {
   const { user, refreshSessionUser } = useAuth();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'applications' | 'instagram' | 'ai' | 'collaborations' | 'earnings' | 'messages' | 'profile'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'applications' | 'instagram' | 'ai' | 'collaborations' | 'earnings' | 'messages' | 'profile' | 'membership'>('overview');
   const [loading, setLoading] = useState(true);
   const [syncingInstagram, setSyncingInstagram] = useState(false);
 
@@ -41,6 +47,8 @@ export const CreatorDashboard: React.FC = () => {
   const [applications, setApplications] = useState<any[]>([]);
   const [collaborations, setCollaborations] = useState<any[]>([]);
   const [earnings, setEarnings] = useState<any>(null);
+  const [subscriptionData, setSubscriptionData] = useState<CreatorSubscriptionStatus | null>(null);
+  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [oauthFeedback, setOauthFeedback] = useState<{ message: string; isError?: boolean } | null>(null);
 
   // Deliverables submission state
@@ -56,11 +64,12 @@ export const CreatorDashboard: React.FC = () => {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [igRes, appsRes, colRes, earnRes] = await Promise.allSettled([
+      const [igRes, appsRes, colRes, earnRes, subRes] = await Promise.allSettled([
         api.getInstagramAnalytics(),
         api.getApplications(),
         api.getCollaborations(),
-        api.getCreatorEarnings()
+        api.getCreatorEarnings(),
+        api.getSubscriptionStatus()
       ]);
 
       if (igRes.status === 'fulfilled' && igRes.value.success) {
@@ -74,6 +83,9 @@ export const CreatorDashboard: React.FC = () => {
       }
       if (earnRes.status === 'fulfilled' && earnRes.value.success) {
         setEarnings(earnRes.value);
+      }
+      if (subRes.status === 'fulfilled' && subRes.value.success) {
+        setSubscriptionData(subRes.value);
       }
 
       // Check if creator already has stored AI analysis
@@ -190,6 +202,51 @@ export const CreatorDashboard: React.FC = () => {
   };
 
   const isIgConnected = Boolean(instagramData && instagramData.is_connected);
+  const currentTier = subscriptionData?.tier || (profile.subscription_tier as any) || 'free';
+
+  const getTierBadgeInfo = (tier: string) => {
+    switch (tier) {
+      case 'diamond':
+        return {
+          label: 'Diamond Elite',
+          color: 'from-cyan-500 to-blue-500',
+          textColor: 'text-cyan-400',
+          borderColor: 'border-cyan-500/30',
+          bgColor: 'bg-cyan-500/10',
+          icon: Crown
+        };
+      case 'gold':
+        return {
+          label: 'Gold VIP',
+          color: 'from-amber-400 to-yellow-500',
+          textColor: 'text-amber-400',
+          borderColor: 'border-amber-500/30',
+          bgColor: 'bg-amber-500/10',
+          icon: Award
+        };
+      case 'silver':
+        return {
+          label: 'Silver Pro',
+          color: 'from-slate-300 to-slate-400',
+          textColor: 'text-slate-300',
+          borderColor: 'border-slate-400/30',
+          bgColor: 'bg-slate-400/10',
+          icon: Zap
+        };
+      default:
+        return {
+          label: 'Free Plan',
+          color: 'from-slate-500 to-slate-600',
+          textColor: 'text-slate-400',
+          borderColor: 'border-slate-700',
+          bgColor: 'bg-slate-800/40',
+          icon: Zap
+        };
+    }
+  };
+
+  const tierInfo = getTierBadgeInfo(currentTier);
+  const TierIcon = tierInfo.icon;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row">
@@ -294,13 +351,36 @@ export const CreatorDashboard: React.FC = () => {
 
             <button
               onClick={() => setActiveTab('earnings')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
                 activeTab === 'earnings'
                   ? 'bg-purple-600 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
               }`}
             >
-              <DollarSign className="w-4 h-4 text-emerald-400" /> Escrow & Earnings
+              <span className="flex items-center gap-3">
+                <DollarSign className="w-4 h-4 text-emerald-400" /> Escrow & Earnings
+              </span>
+              {Number(earnings?.total_earned || 0) > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  ₹{Number(earnings.total_earned).toLocaleString()}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('membership')}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+                activeTab === 'membership'
+                  ? 'bg-purple-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <span className="flex items-center gap-3">
+                <Crown className="w-4 h-4 text-amber-400" /> Pro Membership
+              </span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${tierInfo.bgColor} ${tierInfo.textColor} border ${tierInfo.borderColor}`}>
+                {tierInfo.label.split(' ')[0]}
+              </span>
             </button>
 
             <Link
@@ -376,12 +456,39 @@ export const CreatorDashboard: React.FC = () => {
                 <span className="text-slate-300">
                   Min: ₹{Number(profile.min_budget || 3000).toLocaleString()}
                 </span>
+                {Number(earnings?.total_earned || 0) > 0 && (
+                  <>
+                    <span>•</span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold flex items-center gap-1.5 shadow-sm">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      Approved & Escrow Released: ₹{Number(earnings.total_earned).toLocaleString()}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Instagram Status Badge */}
-          <div className="flex items-center gap-3">
+          {/* Status Badges & Subscription */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Membership Tier Pill */}
+            <div className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${tierInfo.bgColor} ${tierInfo.borderColor} ${tierInfo.textColor}`}>
+              <TierIcon className="w-3.5 h-3.5" />
+              <span>{tierInfo.label}</span>
+            </div>
+
+            <button
+              onClick={() => setIsSubscriptionModalOpen(true)}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md ${
+                currentTier === 'free'
+                  ? 'bg-gradient-to-r from-amber-500 to-purple-600 text-white hover:from-amber-400 hover:to-purple-500 shadow-amber-500/20'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              {currentTier === 'free' ? 'Upgrade to Pro' : 'Manage Tier'}
+            </button>
+
             {isIgConnected ? (
               <div className="px-3.5 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -402,7 +509,37 @@ export const CreatorDashboard: React.FC = () => {
         {activeTab === 'overview' && (
           <div className="space-y-8">
             {/* Quick Metrics */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              {/* Total Released Earnings */}
+              <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/40 p-6 rounded-2xl border border-emerald-500/40 shadow-lg relative overflow-hidden">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Total Released Earnings
+                  </div>
+                  {Number(earnings?.total_earned || 0) > 0 && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  )}
+                </div>
+                <div className="text-3xl font-black text-emerald-300">
+                  ₹{Number(earnings?.total_earned || 0).toLocaleString()}
+                </div>
+                <div className="text-[11px] text-emerald-400/90 font-semibold mt-1">
+                  Approved & Escrow Released ✓
+                </div>
+              </div>
+
+              {/* Funds In Escrow */}
+              <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
+                <div className="text-xs font-bold text-slate-400 mb-1">Funds in Escrow</div>
+                <div className="text-3xl font-black text-white">
+                  ₹{Number(earnings?.held_in_escrow || 0).toLocaleString()}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1">
+                  Awaiting brand review & release
+                </div>
+              </div>
+
+              {/* Active Deliverables */}
               <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
                 <div className="text-xs font-bold text-slate-400 mb-1">Active Deliverables</div>
                 <div className="text-3xl font-black text-white">
@@ -411,6 +548,7 @@ export const CreatorDashboard: React.FC = () => {
                 <div className="text-[11px] text-slate-500 mt-1">Campaigns in progress</div>
               </div>
 
+              {/* Applications Submitted */}
               <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
                 <div className="text-xs font-bold text-slate-400 mb-1">Applications Submitted</div>
                 <div className="text-3xl font-black text-purple-400">
@@ -420,13 +558,81 @@ export const CreatorDashboard: React.FC = () => {
                   {applications.filter(a => a.status === 'ACCEPTED').length} accepted
                 </div>
               </div>
+            </div>
 
-              <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
-                <div className="text-xs font-bold text-slate-400 mb-1">Simulated Escrow Balance</div>
-                <div className="text-3xl font-black text-emerald-400">
-                  ₹{Number(earnings?.held_in_escrow || 0).toLocaleString()}
+            {/* Membership & Application Quota Card */}
+            <div className="bg-gradient-to-br from-slate-900 via-slate-900/90 to-purple-950/40 p-6 rounded-3xl border border-slate-800 relative overflow-hidden shadow-xl">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`p-2 rounded-xl bg-gradient-to-tr ${tierInfo.color} text-slate-950 shadow-md`}>
+                      <TierIcon className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-400">Current Membership</div>
+                      <div className="text-lg font-black text-white flex items-center gap-2">
+                        {tierInfo.label}
+                        <span className="text-[11px] font-semibold text-slate-400">
+                          {subscriptionData?.expires_at ? `(Active until ${new Date(subscriptionData.expires_at).toLocaleDateString()})` : '(Lifetime Starter)'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-400 max-w-lg leading-relaxed">
+                    {currentTier === 'free'
+                      ? 'Free creators can submit up to 3 applications/month for briefs up to ₹5,000. Upgrade to Silver, Gold, or Diamond to apply to higher-paying briefs!'
+                      : currentTier === 'silver'
+                      ? 'Silver Pro unlocked: 15 applications/month and briefs up to ₹15,000 with Early Brief Access.'
+                      : currentTier === 'gold'
+                      ? 'Gold VIP unlocked: 40 applications/month, brief payouts up to ₹50,000, AI Pitch Assistant & Brand Match boost!'
+                      : 'Diamond Elite unlocked: Unlimited applications, mega payouts (₹50k+), 0% platform fee & top matchmaking priority!'}
+                  </p>
+                  <div className="flex items-center gap-2 text-xs text-purple-300 font-semibold">
+                    <span>Brief Payout Limit:</span>
+                    <span className="text-emerald-400 font-bold">
+                      {subscriptionData?.max_campaign_reward === 'unlimited'
+                        ? 'Unlimited Reward Briefs'
+                        : `Up to ₹${(subscriptionData?.max_campaign_reward || 5000).toLocaleString()} per Brief`}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-[11px] text-slate-500 mt-1">Pending approval release</div>
+
+                {/* Quota Gauge & Upgrade CTA */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-slate-950/70 p-4 rounded-2xl border border-slate-800/80">
+                  <div className="min-w-[170px]">
+                    <div className="flex justify-between text-xs font-bold mb-1.5">
+                      <span className="text-slate-400">Monthly Applications</span>
+                      <span className="text-white">
+                        {subscriptionData?.applications_used_this_month ?? 0} / {subscriptionData?.applications_limit === 'unlimited' ? '∞' : (subscriptionData?.applications_limit ?? 3)}
+                      </span>
+                    </div>
+                    {/* Progress Bar */}
+                    <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500"
+                        style={{
+                          width: subscriptionData?.applications_limit === 'unlimited'
+                            ? '15%'
+                            : `${Math.min(100, (((subscriptionData?.applications_used_this_month ?? 0) / (subscriptionData?.applications_limit || 3)) * 100))}%`
+                        }}
+                      />
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-1">
+                      {subscriptionData?.applications_remaining === 'unlimited'
+                        ? 'Unlimited applications available'
+                        : `${subscriptionData?.applications_remaining ?? 3} applications remaining this month`}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setIsSubscriptionModalOpen(true)}
+                    className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-purple-600/30 whitespace-nowrap transition-all"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    {currentTier === 'diamond' ? 'View Perks' : 'Upgrade Plan'}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -478,15 +684,25 @@ export const CreatorDashboard: React.FC = () => {
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                          col.status === 'COMPLETED'
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                            : col.status === 'SUBMITTED'
-                            ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                            : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                        }`}>
-                          {col.status}
-                        </span>
+                        {col.status === 'COMPLETED' ? (
+                          <div className="flex flex-col sm:items-end">
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              Approved & Escrow Released ✓
+                            </span>
+                            <span className="text-[11px] font-black text-emerald-400 mt-0.5">
+                              +₹{Number(col.reward_per_creator || 5000).toLocaleString()} Paid
+                            </span>
+                          </div>
+                        ) : (
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                            col.status === 'SUBMITTED'
+                              ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                              : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                          }`}>
+                            {col.status}
+                          </span>
+                        )}
                         <button
                           onClick={() => { setSelectedCollab(col); setActiveTab('collaborations'); }}
                           className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200"
@@ -548,9 +764,21 @@ export const CreatorDashboard: React.FC = () => {
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">
-                          Status: {col.status}
-                        </span>
+                        {col.status === 'COMPLETED' ? (
+                          <div className="flex flex-col items-end">
+                            <span className="px-3.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-black flex items-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                              Approved & Escrow Released ✓
+                            </span>
+                            <span className="text-xs font-bold text-emerald-400 mt-1">
+                              +₹{Number(col.reward_per_creator || 5000).toLocaleString()} Credited
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                            Status: {col.status}
+                          </span>
+                        )}
                         {col.status !== 'COMPLETED' && (
                           <button
                             onClick={() => setSelectedCollab(col)}
@@ -568,12 +796,14 @@ export const CreatorDashboard: React.FC = () => {
                         { step: 1, label: 'Accepted' },
                         { step: 2, label: 'Content Creation' },
                         { step: 3, label: 'Proof Submitted' },
-                        { step: 4, label: 'Approved & Paid' }
+                        { step: 4, label: col.status === 'COMPLETED' ? 'Approved & Escrow Released ✓' : 'Approved & Paid' }
                       ].map(s => (
                         <div
                           key={s.step}
-                          className={`p-2 rounded-xl border text-[11px] font-bold ${
-                            (col.current_step || 1) >= s.step
+                          className={`p-2.5 rounded-xl border text-[11px] font-bold ${
+                            col.status === 'COMPLETED' && s.step === 4
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm'
+                              : (col.current_step || 1) >= s.step
                               ? 'bg-purple-500/10 text-purple-300 border-purple-500/30'
                               : 'bg-slate-950/40 text-slate-500 border-slate-800'
                           }`}
@@ -714,28 +944,61 @@ export const CreatorDashboard: React.FC = () => {
         {/* Tab 6: Earnings & Simulated Escrow */}
         {activeTab === 'earnings' && (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-black text-white mb-1">Escrow & Payout Ledger</h2>
-              <p className="text-xs text-slate-400">
-                Transparent escrow fund management. Funds are held upon application acceptance and released upon deliverable approval.
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black text-white mb-1">Escrow & Payout Ledger</h2>
+                <p className="text-xs text-slate-400">
+                  Transparent escrow fund management. Funds are held upon application acceptance and automatically released upon deliverable approval.
+                </p>
+              </div>
+
+              <button
+                onClick={loadAllData}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 flex items-center gap-1.5 transition-all self-start sm:self-auto"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Refresh Balance
+              </button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div className="bg-slate-900/60 p-6 rounded-3xl border border-slate-800">
-                <div className="text-xs font-bold text-slate-400 mb-1">Total Completed Payouts</div>
-                <div className="text-3xl font-black text-emerald-400">
+              <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/40 p-6 rounded-3xl border border-emerald-500/40 shadow-xl">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Total Released Earnings
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Paid Out
+                  </span>
+                </div>
+                <div className="text-4xl font-black text-emerald-300">
                   ₹{Number(earnings?.total_earned || 0).toLocaleString()}
                 </div>
-                <div className="text-[11px] text-slate-500 mt-1">Successfully released from escrow</div>
+                <div className="text-xs text-emerald-400/90 font-semibold mt-1">
+                  Approved & Escrow Released ✓
+                </div>
+                <div className="text-[11px] text-slate-500 mt-2">
+                  Total earnings deposited directly from approved deliverables
+                </div>
               </div>
 
               <div className="bg-slate-900/60 p-6 rounded-3xl border border-slate-800">
-                <div className="text-xs font-bold text-slate-400 mb-1">Currently Held in Escrow</div>
-                <div className="text-3xl font-black text-purple-400">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-purple-400" /> Currently Held in Escrow
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                    In Escrow
+                  </span>
+                </div>
+                <div className="text-4xl font-black text-purple-400">
                   ₹{Number(earnings?.held_in_escrow || 0).toLocaleString()}
                 </div>
-                <div className="text-[11px] text-slate-500 mt-1">Locked for active collaborations</div>
+                <div className="text-xs text-slate-400 font-semibold mt-1">
+                  Locked for active collaborations
+                </div>
+                <div className="text-[11px] text-slate-500 mt-2">
+                  Will be released immediately once brand verifies content proof
+                </div>
               </div>
             </div>
 
@@ -744,8 +1007,365 @@ export const CreatorDashboard: React.FC = () => {
               <span>Payment Mode: <strong className="text-purple-300">{earnings?.mode_notice || 'Development Escrow Simulator'}</strong></span>
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
             </div>
+
+            {/* Transaction & Escrow Release History */}
+            <div className="bg-slate-900/60 p-6 rounded-3xl border border-slate-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <FileCheck className="w-4 h-4 text-emerald-400" /> Escrow Payout Transactions
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Full history of brand approvals and released escrow amounts.
+                  </p>
+                </div>
+                <span className="text-xs font-bold text-slate-400">
+                  {earnings?.payments?.length || 0} Transactions
+                </span>
+              </div>
+
+              {(!earnings?.payments || earnings.payments.length === 0) ? (
+                <div className="text-center py-12 bg-slate-950/40 rounded-2xl border border-slate-800/80 text-xs text-slate-400">
+                  <Clock className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                  <p className="font-semibold text-slate-300">No escrow transactions recorded yet</p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    When brands accept your applications and approve your deliverables, releases will appear here.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {earnings.payments.map((txn: any) => (
+                    <div
+                      key={txn.id}
+                      className="p-4 bg-slate-950/70 rounded-2xl border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-slate-700 transition-all"
+                    >
+                      <div className="flex items-start gap-3.5">
+                        <div className={`p-2.5 rounded-xl border mt-0.5 ${
+                          txn.status === 'RELEASED'
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                            : 'bg-purple-500/10 border-purple-500/30 text-purple-400'
+                        }`}>
+                          {txn.status === 'RELEASED' ? (
+                            <CheckCircle2 className="w-5 h-5" />
+                          ) : (
+                            <Clock className="w-5 h-5" />
+                          )}
+                        </div>
+
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-bold text-white">
+                              {txn.campaign_title || 'Direct Collaboration Brief'}
+                            </h4>
+                            <span className="text-xs text-slate-400">• {txn.brand_name || 'Brand Partner'}</span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 mt-1">
+                            <span className="font-mono text-[11px] text-slate-500">
+                              Ref: {txn.transaction_ref || txn.id}
+                            </span>
+                            <span>•</span>
+                            <span className="text-slate-400 text-[11px]">
+                              {txn.created_at ? new Date(txn.created_at).toLocaleString() : 'Recent'}
+                            </span>
+                            {txn.is_simulated ? (
+                              <>
+                                <span>•</span>
+                                <span className="text-[10px] text-purple-400 font-semibold bg-purple-500/10 px-2 py-0.5 rounded">
+                                  Escrow Simulated
+                                </span>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800/60">
+                        <span className={`text-base font-black ${
+                          txn.status === 'RELEASED' ? 'text-emerald-400' : 'text-purple-300'
+                        }`}>
+                          {txn.status === 'RELEASED' ? '+' : ''}₹{Number(txn.amount || 0).toLocaleString()}
+                        </span>
+
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black mt-1 inline-flex items-center gap-1 ${
+                          txn.status === 'RELEASED'
+                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
+                        }`}>
+                          {txn.status === 'RELEASED' ? 'Approved & Escrow Released ✓' : 'Held in Escrow'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
+
+        {/* Tab 7: Pro Membership & Tiers */}
+        {activeTab === 'membership' && (
+          <div className="space-y-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider mb-1">
+                  <Crown className="w-4 h-4" /> Creator Monetization Plans
+                </div>
+                <h2 className="text-2xl font-black text-white">Creator Pro Membership</h2>
+                <p className="text-xs text-slate-400 mt-1 max-w-xl">
+                  Take subscriptions based on Silver, Gold, or Diamond to unlock high-budget campaigns, increase monthly applications, and get prioritized by top brands.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setIsSubscriptionModalOpen(true)}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-purple-600/25 self-start sm:self-auto"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Change / Upgrade Tier
+              </button>
+            </div>
+
+            {/* Current Active Plan Card */}
+            <div className="bg-gradient-to-r from-slate-900 via-purple-950/30 to-slate-900 p-6 rounded-3xl border border-purple-500/30 shadow-xl">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                    Your Active Subscription
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className={`px-3 py-1 rounded-xl text-sm font-black flex items-center gap-1.5 ${tierInfo.bgColor} ${tierInfo.textColor} border ${tierInfo.borderColor}`}>
+                      <TierIcon className="w-4 h-4" /> {tierInfo.label}
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      {subscriptionData?.expires_at
+                        ? `Valid until ${new Date(subscriptionData.expires_at).toLocaleDateString()}`
+                        : 'Free Forever Tier'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center">
+                  <div className="bg-slate-950/60 p-3 rounded-2xl border border-slate-800">
+                    <div className="text-[10px] text-slate-400 font-bold uppercase">Apps Used</div>
+                    <div className="text-lg font-black text-white mt-0.5">
+                      {subscriptionData?.applications_used_this_month ?? 0}
+                    </div>
+                  </div>
+                  <div className="bg-slate-950/60 p-3 rounded-2xl border border-slate-800">
+                    <div className="text-[10px] text-slate-400 font-bold uppercase">Monthly Limit</div>
+                    <div className="text-lg font-black text-purple-400 mt-0.5">
+                      {subscriptionData?.applications_limit === 'unlimited' ? 'Unlimited' : (subscriptionData?.applications_limit ?? 3)}
+                    </div>
+                  </div>
+                  <div className="bg-slate-950/60 p-3 rounded-2xl border border-slate-800 col-span-2 sm:col-span-1">
+                    <div className="text-[10px] text-slate-400 font-bold uppercase">Max Brief Payout</div>
+                    <div className="text-lg font-black text-emerald-400 mt-0.5">
+                      {subscriptionData?.max_campaign_reward === 'unlimited' ? 'No Limit' : `₹${(subscriptionData?.max_campaign_reward || 5000).toLocaleString()}`}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Plans Showcase Cards */}
+            <div>
+              <h3 className="text-base font-bold text-white mb-4">Available Tiers & Benefits</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Silver */}
+                <div className={`p-6 rounded-3xl border flex flex-col justify-between transition-all ${
+                  currentTier === 'silver'
+                    ? 'bg-slate-900 border-slate-400/50 ring-2 ring-slate-400/30'
+                    : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                }`}>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-500/10 text-slate-300 border border-slate-500/20">
+                        Silver Pro
+                      </span>
+                      {currentTier === 'silver' && (
+                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                          Active Plan
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-2xl font-black text-white mt-2">₹499 <span className="text-xs text-slate-400 font-normal">/mo</span></div>
+                    <p className="text-xs text-slate-400 mt-1 mb-4">Great for rising creators seeking regular local brand collaborations.</p>
+
+                    <ul className="space-y-2.5 text-xs text-slate-300 pt-3 border-t border-slate-800">
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                        <span><strong>15</strong> Campaign Applications / month</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                        <span>Apply to briefs up to <strong>₹15,000</strong></span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                        <span>Early Brief Access (12 hrs before Free)</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                        <span>Silver Pro Verified Badge</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <button
+                    onClick={() => setIsSubscriptionModalOpen(true)}
+                    className="w-full mt-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all"
+                  >
+                    {currentTier === 'silver' ? 'Manage Plan' : 'Select Silver'}
+                  </button>
+                </div>
+
+                {/* Gold */}
+                <div className={`p-6 rounded-3xl border flex flex-col justify-between relative transition-all shadow-xl ${
+                  currentTier === 'gold'
+                    ? 'bg-slate-900 border-amber-500/50 ring-2 ring-amber-500/30'
+                    : 'bg-slate-900/80 border-amber-500/30 hover:border-amber-500/50'
+                }`}>
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 text-[10px] font-black uppercase tracking-wider shadow-md">
+                    Most Popular
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                        Gold VIP
+                      </span>
+                      {currentTier === 'gold' && (
+                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                          Active Plan
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-2xl font-black text-white mt-2">₹999 <span className="text-xs text-slate-400 font-normal">/mo</span></div>
+                    <p className="text-xs text-slate-400 mt-1 mb-4">For full-time influencers and high-engagement content creators.</p>
+
+                    <ul className="space-y-2.5 text-xs text-slate-300 pt-3 border-t border-slate-800">
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span><strong>40</strong> Campaign Applications / month</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>Apply to briefs up to <strong>₹50,000</strong></span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>AI Pitch Assistant (Generates high-converting pitches)</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>2x Ranking Boost in Brand Matchmaker</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>Gold VIP Verified Badge</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <button
+                    onClick={() => setIsSubscriptionModalOpen(true)}
+                    className="w-full mt-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-black text-xs hover:opacity-95 shadow-md shadow-amber-500/20 transition-all"
+                  >
+                    {currentTier === 'gold' ? 'Manage Plan' : 'Select Gold VIP'}
+                  </button>
+                </div>
+
+                {/* Diamond */}
+                <div className={`p-6 rounded-3xl border flex flex-col justify-between relative transition-all shadow-xl ${
+                  currentTier === 'diamond'
+                    ? 'bg-slate-900 border-cyan-500/50 ring-2 ring-cyan-500/30'
+                    : 'bg-slate-900/60 border-cyan-500/30 hover:border-cyan-500/50'
+                }`}>
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 text-white text-[10px] font-black uppercase tracking-wider shadow-md">
+                    Top Tier
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="px-3 py-1 rounded-full text-xs font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+                        Diamond Elite
+                      </span>
+                      {currentTier === 'diamond' && (
+                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                          Active Plan
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-2xl font-black text-white mt-2">₹1,999 <span className="text-xs text-slate-400 font-normal">/mo</span></div>
+                    <p className="text-xs text-slate-400 mt-1 mb-4">Elite creators, agencies, and top-tier influencers desiring VIP privileges.</p>
+
+                    <ul className="space-y-2.5 text-xs text-slate-300 pt-3 border-t border-slate-800">
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span><strong>Unlimited</strong> Campaign Applications</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span><strong>No Payout Cap</strong> (₹50,000+ mega briefs)</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span><strong>0% Platform Escrow Fee</strong></span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span>Featured at Top of Brand Discovery</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span>Diamond Elite Verified Badge</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <button
+                    onClick={() => setIsSubscriptionModalOpen(true)}
+                    className="w-full mt-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-black text-xs hover:opacity-95 shadow-md shadow-cyan-500/20 transition-all"
+                  >
+                    {currentTier === 'diamond' ? 'Manage Plan' : 'Select Diamond Elite'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Membership Invoices & Transactions History */}
+            {subscriptionData?.history && subscriptionData.history.length > 0 && (
+              <div className="bg-slate-900/60 p-6 rounded-3xl border border-slate-800">
+                <h3 className="text-sm font-bold text-white mb-3">Subscription Billing History</h3>
+                <div className="space-y-2">
+                  {subscriptionData.history.map(item => (
+                    <div key={item.id} className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-bold text-white capitalize">{item.tier} Plan</span>
+                        <div className="text-[11px] text-slate-500">
+                          {new Date(item.created_at).toLocaleDateString()} • {item.billing_cycle}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold text-emerald-400">₹{item.amount?.toLocaleString()}</div>
+                        <span className="text-[10px] text-slate-400 uppercase font-bold">{item.status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Subscription Upgrade Modal */}
+        <CreatorSubscriptionModal
+          isOpen={isSubscriptionModalOpen}
+          onClose={() => setIsSubscriptionModalOpen(false)}
+          currentTier={currentTier}
+          onUpgradeSuccess={() => {
+            loadAllData();
+            refreshSessionUser();
+          }}
+        />
       </main>
     </div>
   );

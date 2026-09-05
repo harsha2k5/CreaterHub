@@ -40,6 +40,7 @@ app.use('/api/payments', require('./routes/payments.cjs'));
 app.use('/api/messages', require('./routes/messages.cjs'));
 app.use('/api/reviews', require('./routes/reviews.cjs'));
 app.use('/api/notifications', require('./routes/notifications.cjs'));
+app.use('/api/subscriptions', require('./routes/subscriptions.cjs').router);
 app.use('/api/admin', require('./routes/admin.cjs'));
 
 // Health check endpoint

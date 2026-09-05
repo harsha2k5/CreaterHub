@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS creator_profiles (
     verification_status TEXT DEFAULT 'none',
     verification_docs TEXT,
     social_link TEXT,
+    subscription_tier TEXT DEFAULT 'free',
+    subscription_expires_at TIMESTAMP,
+    subscription_updated_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -47,6 +50,23 @@ CREATE TABLE IF NOT EXISTS creator_profiles (
 CREATE INDEX IF NOT EXISTS idx_creator_user_id ON creator_profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_creator_username ON creator_profiles(username);
 CREATE INDEX IF NOT EXISTS idx_creator_location ON creator_profiles(city, lat, lng);
+CREATE INDEX IF NOT EXISTS idx_creator_tier ON creator_profiles(subscription_tier);
+
+CREATE TABLE IF NOT EXISTS creator_subscriptions (
+    id TEXT PRIMARY KEY,
+    creator_id TEXT NOT NULL REFERENCES creator_profiles(id) ON DELETE CASCADE,
+    tier TEXT NOT NULL CHECK(tier IN ('silver', 'gold', 'diamond')),
+    price REAL NOT NULL,
+    billing_cycle TEXT DEFAULT 'monthly',
+    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'cancelled', 'expired')),
+    payment_method TEXT DEFAULT 'UPI',
+    transaction_ref TEXT,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sub_creator ON creator_subscriptions(creator_id);
 
 CREATE TABLE IF NOT EXISTS brand_profiles (
     id TEXT PRIMARY KEY,
